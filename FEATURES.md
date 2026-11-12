@@ -359,11 +359,10 @@ Hosts can pass an `aiSettings` element that Studio renders in the panel. The loc
 Instead of copying an API key, you can press `Connect with OpenRouter`, sign in on openrouter.ai, and come back with a key created for Studio, which gives one account access to GPT, Claude, Gemini, and many other models.
 It uses OpenRouter's OAuth PKCE flow entirely in the browser (S256 challenge plus a verified `state`), removes the one-time code from the URL, and reopens Studio where you were. ChatGPT and Claude consumer subscriptions cannot be used by third-party apps, so OpenRouter is the supported single sign-in option.
 
-## AI Assistant Suggested Questions
+## Context-Aware AI Assistant
 
-The SQL AI assistant panel shows up to five starter questions built from your real schema, so you can discover what your database can answer without knowing its table names first.
-Suggestions are computed locally from introspection (foreign-key relationships, per-month counts on date columns, averages on numeric columns, and row previews) and never call the AI; picking one only fills the question field, and AI is used only when you press Generate query.
-Questions can be written in any language or with synonyms (for example "estudiantes" for a `students` table): the model maps them to the real names, and the explanation under the generated SQL says which tables it used and what each clause does, so you learn the SQL instead of just getting a result.
+The floating ✦ button opens an AI assistant docked next to whatever you are looking at, without leaving it. It knows the context: in the Visualizer you can ask about the diagram ("how are these tables related?"), with a table open it knows that table's columns, keys, and which tables point to it, and in the SQL editor it can explain or improve the current query. A chip above the input shows the context it will use.
+It answers from your schema (rows are never sent) and keeps the conversation, so follow-up questions work. When an answer needs data, it writes a query and offers "Open in SQL editor"; only then does Studio switch to the SQL view, putting the query in the editor without running it. Starter questions match the context and are built locally without calling the AI, and questions can be in any language.
 
 ## AI SQL Result Visualization
 

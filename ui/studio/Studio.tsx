@@ -8,6 +8,8 @@ import { useIntrospection } from "../hooks/use-introspection";
 import { useNavigation } from "../hooks/use-navigation";
 import { CustomTheme } from "../hooks/use-theme";
 import { cn } from "../lib/utils";
+import { StudioAssistantLauncher } from "./assistant/StudioAssistantLauncher";
+import { StudioAssistantPanel } from "./assistant/StudioAssistantPanel";
 import { StudioCommandPaletteProvider } from "./CommandPalette";
 import { StudioContextProvider, useStudio } from "./context";
 import { IntrospectionStatusNotice } from "./IntrospectionStatusNotice";
@@ -18,7 +20,6 @@ import { ConsoleView } from "./views/console/ConsoleView";
 import { MigrationsView } from "./views/migrations/MigrationsView";
 import { QueriesView } from "./views/queries/QueriesView";
 import { SchemaView } from "./views/schema/SchemaView";
-import { SqlAiLauncher } from "./views/sql/SqlAiLauncher";
 import { SqlView } from "./views/sql/SqlView";
 import { StreamView } from "./views/stream/StreamView";
 import { ActiveTableView } from "./views/table/ActiveTableView";
@@ -210,7 +211,8 @@ function StudioContent() {
               )}
             </motion.div>
 
-            <SqlAiLauncher />
+            <StudioAssistantPanel />
+            <StudioAssistantLauncher />
           </div>
         </div>
       </StudioCommandPaletteProvider>

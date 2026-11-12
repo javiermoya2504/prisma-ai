@@ -6,6 +6,7 @@ export const STUDIO_LLM_TASKS = [
   "sql-generation",
   "sql-visualization",
   "change-history",
+  "assistant",
 ] as const;
 
 export type StudioLlmTask = (typeof STUDIO_LLM_TASKS)[number];

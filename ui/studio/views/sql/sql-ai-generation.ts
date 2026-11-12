@@ -440,7 +440,7 @@ function coerceVisualizationDecision(value: unknown): boolean {
   return false;
 }
 
-function getDatabaseEngineName(dialect: SqlEditorDialect): string {
+export function getDatabaseEngineName(dialect: SqlEditorDialect): string {
   switch (dialect) {
     case "mysql":
       return "MySQL";
@@ -452,7 +452,9 @@ function getDatabaseEngineName(dialect: SqlEditorDialect): string {
   }
 }
 
-function getDialectSpecificPromptRules(dialect: SqlEditorDialect): string[] {
+export function getDialectSpecificPromptRules(
+  dialect: SqlEditorDialect,
+): string[] {
   switch (dialect) {
     case "mysql":
       return ["Do not use PostgreSQL-only syntax like ILIKE or ::type casts."];
@@ -468,7 +470,10 @@ function getDialectSpecificPromptRules(dialect: SqlEditorDialect): string[] {
   }
 }
 
-function formatPromptLocalDateTime(date: Date, timeZone: string): string {
+export function formatPromptLocalDateTime(
+  date: Date,
+  timeZone: string,
+): string {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "full",
     timeStyle: "long",

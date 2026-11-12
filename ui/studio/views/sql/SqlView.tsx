@@ -30,6 +30,11 @@ import { useColumnPinning } from "../../../hooks/use-column-pinning";
 import { useIntrospection } from "../../../hooks/use-introspection";
 import { useNavigation } from "../../../hooks/use-navigation";
 import { useUiState } from "../../../hooks/use-ui-state";
+import {
+  ASSISTANT_PANEL_STATE_KEY,
+  SQL_AI_HANDOFF_STATE_KEY,
+  type SqlAiHandoff,
+} from "../../assistant/StudioAssistantPanel";
 import type { CellProps } from "../../cell/Cell";
 import { Cell } from "../../cell/Cell";
 import { getCell } from "../../cell/get-cell";
@@ -46,8 +51,6 @@ import {
 } from "./sql-editor-config";
 import { createSqlEditorKeybindings } from "./sql-editor-keybindings";
 import { createSqlLintSource } from "./sql-lint-source";
-import { buildSqlAiSuggestions } from "./sql-ai-suggestions";
-import { SQL_AI_PANEL_STATE_KEY, SqlAiPanel } from "./SqlAiPanel";
 import {
   SqlResultVisualizationChart,
   useSqlResultVisualization,
@@ -260,7 +263,6 @@ const SqlResultGrid = memo(function SqlResultGrid(props: SqlResultGridProps) {
 export function SqlView(_props: ViewProps) {
   const {
     adapter,
-    aiSettings,
     hasAiSql,
     isDarkMode,
     onEvent,
@@ -270,11 +272,9 @@ export function SqlView(_props: ViewProps) {
   const { data: introspection } = useIntrospection();
   // Persistent so the panel stays open across reloads and the OpenRouter
   // sign-in redirect, like the chat pane in AI-enabled editors.
-  const [isAiPanelOpen, setIsAiPanelOpen] = useUiState(
-    SQL_AI_PANEL_STATE_KEY,
-    false,
-    { persistent: true },
-  );
+  const [isAiPanelOpen] = useUiState(ASSISTANT_PANEL_STATE_KEY, false, {
+    persistent: true,
+  });
   const { schemaParam } = useNavigation();
   const { pinnedColumnIds, setPinnedColumnIds } = useColumnPinning();
   const initialPersistedSqlDraft = readPersistedSqlDraft({
@@ -517,16 +517,6 @@ export function SqlView(_props: ViewProps) {
     adapterDefaultSchema: adapter.defaultSchema,
     schemaParam,
   });
-  const aiSuggestions = useMemo(
-    () =>
-      introspection
-        ? buildSqlAiSuggestions({
-            activeSchema: activeSqlSchema,
-            introspection,
-          })
-        : [],
-    [activeSqlSchema, introspection],
-  );
   const sqlEditorSchema = useMemo(() => {
     return createSqlEditorSchemaFromIntrospection({
       defaultSchema: activeSqlSchema,
@@ -643,6 +633,40 @@ export function SqlView(_props: ViewProps) {
     });
     if (!isAiPanelOpen) focusSqlEditorAtEnd(args.sql);
   }
+
+  // Queries written by the Studio-wide AI assistant land in the editor here
+  // (not executed), keeping the AI request for error correction and charts.
+  const [aiHandoff, setAiHandoff] = useUiState<SqlAiHandoff | null>(
+    SQL_AI_HANDOFF_STATE_KEY,
+    null,
+  );
+  const applyAiHandoffRef = useRef<(handoff: SqlAiHandoff) => void>(
+    () => undefined,
+  );
+  applyAiHandoffRef.current = (handoff) => {
+    setResult(null);
+    setErrorMessage(null);
+    setAiGenerationErrorMessage(null);
+    applyAiSqlGenerationResult({
+      aiQueryRequest: handoff.request,
+      rationale: null,
+      shouldGenerateVisualization: handoff.shouldGenerateVisualization,
+      sql: handoff.sql,
+    });
+  };
+
+  useEffect(() => {
+    if (!aiHandoff) return;
+
+    const handoff = aiHandoff;
+    setAiHandoff(null);
+    // Applied outside the effect because it uses flushSync to update the
+    // editor. Not cancelled on cleanup: clearing the handoff re-runs this
+    // effect, and the query must still land.
+    setTimeout(() => {
+      if (isMountedRef.current) applyAiHandoffRef.current(handoff);
+    }, 0);
+  }, [aiHandoff, setAiHandoff]);
 
   async function resolveValidatedAiSqlGeneration(args: {
     previousSql?: string;
@@ -1061,11 +1085,6 @@ export function SqlView(_props: ViewProps) {
     </Button>
   );
 
-  const closeAiPanel = () => {
-    setIsAiPanelOpen(false);
-    focusSqlEditorAtEnd(latestEditorValueRef.current);
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-1 overflow-hidden">
       <div
@@ -1277,22 +1296,6 @@ export function SqlView(_props: ViewProps) {
           )}
         </div>
       </div>
-      {isAiPanelOpen && (hasAiSql || aiSettings) ? (
-        <SqlAiPanel
-          onClose={closeAiPanel}
-          settings={aiSettings}
-          enabled={hasAiSql}
-          busy={isGeneratingSql || isCorrectingSql}
-          schema={activeSqlSchema}
-          prompt={aiPrompt}
-          onPromptChange={setAiPrompt}
-          suggestions={aiSuggestions}
-          onGenerate={() => void generateSqlFromPrompt()}
-          error={aiGenerationErrorMessage}
-          sql={pendingAiSqlExecution?.sql}
-          rationale={aiGenerationRationale}
-        />
-      ) : null}
     </div>
   );
 }
@@ -1465,7 +1468,7 @@ function getDatabaseEngineName(dialect: "postgresql" | "mysql" | "sqlite") {
   }
 }
 
-function readPersistedSqlDraft(args: {
+export function readPersistedSqlDraft(args: {
   sqlEditorStateCollection: ReturnType<
     typeof useStudio
   >["sqlEditorStateCollection"];

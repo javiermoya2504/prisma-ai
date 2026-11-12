@@ -310,13 +310,13 @@ These are the current high-signal places where Studio is bypassing a plausible s
 - Confidence:
   - High
 
-### SQL AI Assistant Docked Panel
+### AI Assistant Docked Chat Panel
 
 - Files:
-  - [`ui/studio/views/sql/SqlAiPanel.tsx`](ui/studio/views/sql/SqlAiPanel.tsx)
-  - [`ui/studio/views/sql/SqlView.tsx`](ui/studio/views/sql/SqlView.tsx)
+  - [`ui/studio/assistant/StudioAssistantPanel.tsx`](ui/studio/assistant/StudioAssistantPanel.tsx)
+  - [`ui/studio/Studio.tsx`](ui/studio/Studio.tsx)
 - Current UI:
-  - A fixed-width `<aside>` docked to the right of the SQL workspace inside a flex row, so opening it narrows the editor and results instead of covering them. A ghost icon `Button` closes it. Its header mirrors `StudioHeader` height, and its sections reuse the navigation block heading style through a small `PanelSection` helper (optionally collapsible with a chevron). Contents are standard `Button`, `Textarea`, `Alert`, `Input`, `Checkbox`, and `ToggleGroup`.
+  - A fixed-width `<aside>` docked to the right of the main pane in the Studio shell (every view), so opening it narrows the current view instead of covering it. Header mirrors `StudioHeader` height with ghost icon `Button`s to clear and close. Below it: a collapsible provider section (chevron heading), a scrolling message list (user messages as muted bubbles, replies as text plus a query `pre` block with `Open in SQL editor` / copy `Button`s), and a composer with a context `Badge`, a `Textarea`, and a send `Button`. Contents are standard `Button`, `Textarea`, `Alert`, and `Badge`.
 - Plausible standard ShadCN alternative:
   - `Sheet`: rejected because it is a modal overlay that dims and blocks the editor, while the assistant must stay open next to the editor and results the user is working with, like the chat panes in AI-enabled editors.
   - `Sidebar` (`side="right"`): would fit, but it requires a `SidebarProvider` around the Studio shell and pulls in its own layout state for a single panel.
@@ -324,10 +324,10 @@ These are the current high-signal places where Studio is bypassing a plausible s
 - Confidence:
   - Medium
 
-### SQL AI Assistant Floating Launcher
+### AI Assistant Floating Launcher
 
 - Files:
-  - [`ui/studio/views/sql/SqlAiLauncher.tsx`](ui/studio/views/sql/SqlAiLauncher.tsx)
+  - [`ui/studio/assistant/StudioAssistantLauncher.tsx`](ui/studio/assistant/StudioAssistantLauncher.tsx)
   - [`ui/studio/Studio.tsx`](ui/studio/Studio.tsx)
 - Current UI:
   - A standard icon `Button` restyled as a 48px round floating action button, absolutely positioned in the bottom-right of the Studio shell (above grid pagination footers). It is the single entry point to the AI assistant panel and hides while the panel is open.

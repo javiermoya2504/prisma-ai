@@ -12,7 +12,7 @@ This architecture governs:
 - prompt construction from live introspection metadata
 - response validation and retry behavior
 - how generated SQL is written into editor state and executed
-- the SQL AI assistant side panel and its host-owned settings slot
+- the Studio-wide AI assistant panel, its context awareness, its hand-off of queries to the SQL view, and its host-owned settings slot
 - demo wiring for the local multi-provider (OpenAI, Anthropic, Gemini, OpenRouter) example, including OpenRouter sign-in and opt-in key persistence
 
 ## Canonical Components
@@ -20,8 +20,9 @@ This architecture governs:
 - [`ui/studio/views/sql/SqlView.tsx`](../ui/studio/views/sql/SqlView.tsx)
 - [`ui/studio/views/sql/sql-ai-generation.ts`](../ui/studio/views/sql/sql-ai-generation.ts)
 - [`ui/studio/views/sql/sql-ai-suggestions.ts`](../ui/studio/views/sql/sql-ai-suggestions.ts)
-- [`ui/studio/views/sql/SqlAiPanel.tsx`](../ui/studio/views/sql/SqlAiPanel.tsx)
-- [`ui/studio/views/sql/SqlAiLauncher.tsx`](../ui/studio/views/sql/SqlAiLauncher.tsx)
+- [`ui/studio/assistant/StudioAssistantPanel.tsx`](../ui/studio/assistant/StudioAssistantPanel.tsx)
+- [`ui/studio/assistant/StudioAssistantLauncher.tsx`](../ui/studio/assistant/StudioAssistantLauncher.tsx)
+- [`ui/studio/assistant/assistant-prompt.ts`](../ui/studio/assistant/assistant-prompt.ts)
 - [`ui/studio/views/sql/ai-json-response.ts`](../ui/studio/views/sql/ai-json-response.ts)
 - [`ui/studio/context.tsx`](../ui/studio/context.tsx)
 - [`ui/studio/Studio.tsx`](../ui/studio/Studio.tsx)
@@ -43,11 +44,12 @@ This architecture governs:
 - Submitting a prompt MUST replace the current editor contents with the generated SQL text.
 - Submitting a prompt MUST focus the SQL editor and place the cursor at the end of the generated statement so `Cmd/Ctrl+Enter` or the existing run button can execute it immediately.
 - AI-generation loading and error states MUST stay inline inside the SQL view and MUST NOT break the normal editor/result layout.
-- The SQL view MAY also expose an `AI assistant` panel (`SqlAiPanel`). Its only entry point is a floating round launcher (`SqlAiLauncher`) in the bottom-right corner of the Studio shell, visible from every view; clicking it opens the panel and switches to the SQL view when needed. The launcher MUST hide while the panel is open and MUST sit above grid pagination footers. The panel MUST be docked inline beside the SQL workspace, not a modal overlay: opening it narrows the editor and results, which stay visible and interactive. It reuses the same generation flow, previews the generated SQL read-only, and MUST NOT execute it; closing the panel hands focus back to the editor. See `non-standard-ui.md`.
-- The panel's open state MUST live in persistent shared UI state (`SQL_AI_PANEL_STATE_KEY`) so the launcher and the panel agree, and the panel stays open across reloads and the OpenRouter sign-in redirect.
-- The panel MUST follow Studio's visual language: a header matching `StudioHeader` height so borders align, sections titled like navigation blocks (16px muted icon + `text-sm font-medium`), `text-xs` body copy, monospace suggestions styled like navigation items, and the generated SQL in the same `pre` block style as Query Details.
-- The provider settings section MUST collapse automatically once a provider is connected so the question field stays in view, and MUST remain expandable.
-- While the panel is open, generation MUST NOT steal focus into the editor; focus moves to the editor when the user closes the panel or chooses `Review in SQL editor`.
+- Studio MAY expose an `AI assistant` chat panel (`StudioAssistantPanel`), rendered by the Studio shell beside the main pane in every view. Its only entry point is a floating round launcher (`StudioAssistantLauncher`) in the bottom-right corner of the shell. Opening the panel MUST NOT change the view. The launcher MUST hide while the panel is open and MUST sit above grid pagination footers. The panel MUST be docked inline (not a modal overlay), so the current view narrows and stays interactive. See `non-standard-ui.md`.
+- The panel MUST be context aware. `useAssistantContext` derives the context from URL state only: Visualizer (`view=schema`) → the schema's ERD; `view=table` → the open table (columns, keys, defaults, enums, outgoing and incoming foreign keys); `view=sql` → the persisted editor draft; `view=stream` → the stream name; other views → their name. The context is shown as a chip above the composer and stamped on each user message; suggestions and the placeholder follow it.
+- Each turn sends task `assistant` with `buildAssistantPrompt`: the context, the schema (tables, columns, PK/FK/default/enum flags, capped), the last eight messages, and the question. The model returns `{"answer","sql","shouldGenerateVisualization"}`; `parseAssistantReply` falls back to showing non-JSON text as the answer. Table rows are never sent; answers that need data MUST come back as a query.
+- The panel MUST NOT navigate on its own. Only when the user chooses `Open in SQL editor` on a reply with a query does it write `SQL_AI_HANDOFF_STATE_KEY` (`{ id, request, sql, shouldGenerateVisualization }`) and switch to `view=sql`; inside the SQL view the button reads `Put in editor` and does not navigate. `SqlView` consumes the hand-off once, applies it through the same path as inline generation (editor content + pending AI execution metadata, so error correction and charts keep working), and MUST NOT execute it.
+- The panel's open state MUST live in persistent shared UI state (`ASSISTANT_PANEL_STATE_KEY`) so the launcher and the panel agree and it stays open across reloads and the OpenRouter sign-in redirect. The conversation lives in shared (non-persistent) UI state and can be cleared from the header.
+- The panel MUST follow Studio's visual language: a header matching `StudioHeader` height so borders align, `text-xs` body copy, monospace suggestions styled like navigation items, and queries in the same `pre` block style as Query Details.
 - The panel MUST render when either `llm` or `aiSettings` is provided. Without `llm`, the generate action MUST stay disabled so a host can let users configure credentials first.
 
 ## Prompt Construction Contract
@@ -70,7 +72,7 @@ This architecture governs:
 
 ## Suggested Questions Contract
 
-- The AI panel MAY show starter questions, and they MUST be built locally from live introspection metadata for the active schema by `buildSqlAiSuggestions`. Building suggestions MUST NOT call `llm`.
+- The AI panel MAY show starter questions, and they MUST be built locally (from the context and live introspection, `buildAssistantSuggestions`, which reuses `buildSqlAiSuggestions` for schema-wide questions). Building suggestions MUST NOT call `llm`.
 - Suggestions MUST use real table and column names (relationships via foreign keys, per-month counts via datetime columns, averages via numeric measure columns, and row previews) and are capped at five.
 - Choosing a suggestion MUST only fill the question field; it MUST NOT generate or execute SQL.
 
@@ -112,7 +114,7 @@ Changes to AI SQL generation MUST include tests covering:
 - schema-derived suggested questions, including that choosing one never calls `llm` or executes SQL
 - correction retry behavior for malformed AI responses
 - SQL-view integration showing controls only when configured
-- the AI panel: floating launcher entry point, docked inline without a modal overlay, provider section auto-collapse, settings-only mode with generation disabled, and generating from the panel without executing SQL
+- the AI assistant: launcher opens it without changing the view, prompts reflect the Visualizer / table / SQL context, replies without a query never navigate, `Open in SQL editor` hands the query off and switches view, `Put in editor` stays in the SQL view, and the SQL view applies a hand-off without executing it
 - local prompt-history persistence plus placeholder-preview navigation with `ArrowUp` / `ArrowDown`
 - filling the editor without auto-executing the generated query
 - validating generated SQL before filling the editor and correcting invalid SQL without exposing the invalid draft

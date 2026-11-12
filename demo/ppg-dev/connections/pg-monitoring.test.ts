@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { Executor } from "../../../data/executor";
 import { openDatabaseConnection } from "./drivers";
@@ -124,12 +124,18 @@ describe("query insights from pg_stat_statements", () => {
 const pgUrl = process.env.STUDIO_CONNECTIONS_PG_TEST_URL;
 
 describe.skipIf(!pgUrl)("PostgreSQL monitoring", () => {
-  const app = postgres(pgUrl!, {
-    connection: { application_name: "grades-api" },
-    max: 1,
-    onnotice: () => {},
+  // Opened in beforeAll: describe bodies run even when the suite is skipped.
+  let app: ReturnType<typeof postgres>;
+  let studio: ReturnType<typeof openDatabaseConnection>;
+
+  beforeAll(() => {
+    app = postgres(pgUrl!, {
+      connection: { application_name: "grades-api" },
+      max: 1,
+      onnotice: () => {},
+    });
+    studio = openDatabaseConnection({ kind: "postgres", url: pgUrl! });
   });
-  const studio = openDatabaseConnection({ kind: "postgres", url: pgUrl! });
 
   afterAll(async () => {
     await app.end({ timeout: 1 }).catch(() => {});

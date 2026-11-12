@@ -80,8 +80,11 @@ vi.mock("./Navigation", () => ({
   Navigation: () => <div>Navigation</div>,
 }));
 
-vi.mock("./views/sql/SqlAiLauncher", () => ({
-  SqlAiLauncher: () => null,
+vi.mock("./assistant/StudioAssistantLauncher", () => ({
+  StudioAssistantLauncher: () => null,
+}));
+vi.mock("./assistant/StudioAssistantPanel", () => ({
+  StudioAssistantPanel: () => null,
 }));
 
 vi.mock("./views/console/ConsoleView", () => ({
