@@ -351,7 +351,7 @@ If AI-generated SQL fails when the user runs it, Studio sends the original reque
 ## SQL AI Assistant Panel
 
 A floating round AI button in the bottom-right corner of Studio opens an assistant panel from any view, so asking your database a question in plain language is always one click away. The panel docks to the right of the SQL editor and pushes the editor and results aside instead of covering them, and it stays open across reloads.
-It generates SQL adapted to your real schema, previews it, and writes it into the editor without running it, so you always see and run the SQL yourself and results appear in the normal grid below. The panel uses Studio's own typography and section styling, and the provider section collapses once you are connected so the question box stays in view.
+It generates SQL adapted to your real schema, previews it, and writes it into the editor without running it, so you always see and run the SQL yourself and results appear in the normal grid below. The panel uses Studio's own typography and section styling, and provider settings live in a dialog opened from the panel's settings button, so the chat itself only shows the conversation.
 Hosts can pass an `aiSettings` element that Studio renders in the panel. The local demo uses it to pick OpenAI, Anthropic, Gemini, or OpenRouter and paste an API key that stays in the tab's memory unless you choose `Remember on this device`.
 
 ## OpenRouter Sign-In For The Demo AI
@@ -363,6 +363,7 @@ It uses OpenRouter's OAuth PKCE flow entirely in the browser (S256 challenge plu
 
 The floating ✦ button opens an AI assistant docked next to whatever you are looking at, without leaving it. It knows the context: in the Visualizer you can ask about the diagram ("how are these tables related?"), with a table open it knows that table's columns, keys, and which tables point to it, and in the SQL editor it can explain or improve the current query. A chip above the input shows the context it will use.
 It answers from your schema (rows are never sent) and keeps the conversation, so follow-up questions work. When an answer needs data, it writes a query and offers "Open in SQL editor"; only then does Studio switch to the SQL view, putting the query in the editor without running it. Starter questions match the context and are built locally without calling the AI, and questions can be in any language.
+Provider and API key settings are in a dialog behind the panel's settings (gear) button; until a provider is connected, the chat shows a single "Connect provider" prompt instead of the settings form.
 
 ## AI SQL Result Visualization
 
@@ -447,6 +448,7 @@ Strict mode can escalate warnings to thrown errors for debugging performance-sen
 ## Theming and Embedding Customization
 
 Embedded hosts can provide custom theme variables (object or CSS) while Studio supports explicit `light`, `dark`, and `match system` theme modes.
+A theme button in every view's header (sun or moon icon) opens a Light / Dark / System picker, so the theme can be changed with one click without opening the command palette. Both use the same persisted preference.
 Theme values are applied across Studio roots and portal surfaces at runtime, and the command palette can switch Studio between actual system color-scheme following and persistent local overrides without introducing a separate theme system. If media queries are unavailable, Studio falls back to the host document `dark` class.
 Theme root classes and variables are synchronized before paint, and supported browsers wrap explicit theme changes in a view transition, so switching appearance modes does not flash a partially updated mix of old and new tokens.
 Palette theme toggles stay interactive in browsers that expose the View Transition API, so `Match system theme` can be turned both on and off in place without closing the palette or getting stuck on the system setting.

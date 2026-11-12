@@ -1,10 +1,10 @@
 import {
-  ChevronRight,
   Code2,
   Copy,
   KeyRound,
   Loader2,
   Send,
+  Settings2,
   Sparkles,
   Trash2,
   X,
@@ -14,11 +14,17 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Textarea } from "../../components/ui/textarea";
 import { useIntrospection } from "../../hooks/use-introspection";
 import { useNavigation } from "../../hooks/use-navigation";
 import { useUiState } from "../../hooks/use-ui-state";
-import { cn } from "../../lib/utils";
 import { useStudio } from "../context";
 import { readPersistedSqlDraft } from "../views/sql/SqlView";
 import {
@@ -124,6 +130,7 @@ export function StudioAssistantPanel() {
   );
   const [question, setQuestion] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [isProviderDialogOpen, setIsProviderDialogOpen] = useState(false);
   const context = useAssistantContext();
   const contextLabel = describeAssistantContext(context);
   const suggestions = useMemo(
@@ -255,6 +262,17 @@ export function StudioAssistantPanel() {
           <h2 className="truncate text-sm font-medium">AI assistant</h2>
         </div>
         <div className="flex items-center gap-1">
+          {aiSettings ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="AI provider settings"
+              title="AI provider settings"
+              onClick={() => setIsProviderDialogOpen(true)}
+            >
+              <Settings2 />
+            </Button>
+          ) : null}
           {messages.length > 0 ? (
             <Button
               variant="ghost"
@@ -279,9 +297,14 @@ export function StudioAssistantPanel() {
       </div>
 
       {aiSettings ? (
-        <ProviderSection enabled={hasAiSql} busy={isBusy}>
+        <ProviderDialog
+          open={isProviderDialogOpen}
+          onOpenChange={setIsProviderDialogOpen}
+          enabled={hasAiSql}
+          busy={isBusy}
+        >
           {aiSettings}
-        </ProviderSection>
+        </ProviderDialog>
       ) : null}
 
       <div
@@ -289,6 +312,26 @@ export function StudioAssistantPanel() {
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
         data-testid="assistant-messages"
       >
+        {!hasAiSql && aiSettings ? (
+          <div
+            className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border p-3"
+            data-testid="assistant-connect-provider"
+          >
+            <p className="text-xs text-muted-foreground">
+              Connect an AI provider to start asking questions.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsProviderDialogOpen(true)}
+            >
+              <KeyRound data-icon="inline-start" />
+              Connect provider
+            </Button>
+          </div>
+        ) : null}
+
         {messages.length === 0 ? (
           <div className="flex flex-col gap-3">
             <p className="text-xs text-muted-foreground">
@@ -296,21 +339,23 @@ export function StudioAssistantPanel() {
               your schema; table rows are never sent. When an answer needs data,
               the assistant writes a query you can open in the SQL editor.
             </p>
-            <div className="-mx-2 flex flex-col gap-px">
-              {suggestions.map((suggestion) => (
-                <Button
-                  key={suggestion}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto justify-start whitespace-normal px-2 py-1 text-left font-mono text-xs font-normal text-foreground/60 hover:text-foreground"
-                  disabled={isBusy || !hasAiSql}
-                  onClick={() => ask(suggestion)}
-                >
-                  {suggestion}
-                </Button>
-              ))}
-            </div>
+            {hasAiSql ? (
+              <div className="-mx-2 flex flex-col gap-px">
+                {suggestions.map((suggestion) => (
+                  <Button
+                    key={suggestion}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto justify-start whitespace-normal px-2 py-1 text-left font-mono text-xs font-normal text-foreground/60 hover:text-foreground"
+                    disabled={isBusy || !hasAiSql}
+                    onClick={() => ask(suggestion)}
+                  >
+                    {suggestion}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -411,7 +456,7 @@ export function StudioAssistantPanel() {
             placeholder={
               hasAiSql
                 ? placeholderFor(context)
-                : "Connect a provider above to start."
+                : "Connect a provider to start."
             }
             rows={2}
             className="min-h-0 resize-none text-xs md:text-xs"
@@ -450,46 +495,43 @@ function placeholderFor(context: AssistantContext): string {
   }
 }
 
-/** Collapsible provider settings, collapsed once a provider is connected. */
-function ProviderSection(props: {
+/**
+ * Provider settings rendered by the host (`aiSettings`), kept out of the chat
+ * in a dialog opened from the header. Closes itself once a provider connects.
+ */
+function ProviderDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   enabled: boolean;
   busy: boolean;
   children: ReactNode;
 }) {
-  const [isOpen, setIsOpen] = useState(!props.enabled);
+  const { enabled, onOpenChange, open } = props;
+  const wasEnabledRef = useRef(enabled);
 
   useEffect(() => {
-    setIsOpen(!props.enabled);
-  }, [props.enabled]);
+    if (enabled && !wasEnabledRef.current && open) onOpenChange(false);
+    wasEnabledRef.current = enabled;
+  }, [enabled, onOpenChange, open]);
 
   return (
-    <section className="shrink-0 border-b border-border/70 px-4 py-3">
-      <button
-        type="button"
-        aria-expanded={isOpen}
-        className="flex w-full items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        onClick={() => setIsOpen((value) => !value)}
-      >
-        <ChevronRight
-          size={14}
-          className={cn(
-            "-ml-1 shrink-0 text-muted-foreground/60 transition-transform",
-            isOpen && "rotate-90",
-          )}
-        />
-        <KeyRound size={16} className="shrink-0 text-muted-foreground/60" />
-        <h3 className="text-sm font-medium">Provider</h3>
-        {props.enabled ? (
-          <span className="ml-auto text-xs text-muted-foreground">
-            Connected
-          </span>
-        ) : null}
-      </button>
-      {isOpen ? (
-        <fieldset disabled={props.busy} className="min-w-0 pt-3">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md font-sans">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-1.5 text-base">
+            <KeyRound size={16} className="text-muted-foreground/60" />
+            AI provider
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {enabled
+              ? "Connected. Change the provider, model or key used by the AI assistant."
+              : "Choose a provider and paste an API key to use the AI assistant."}
+          </DialogDescription>
+        </DialogHeader>
+        <fieldset disabled={props.busy} className="min-w-0">
           {props.children}
         </fieldset>
-      ) : null}
-    </section>
+      </DialogContent>
+    </Dialog>
   );
 }

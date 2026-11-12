@@ -3,6 +3,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { useStudio } from "./context";
+import { ThemeModeToggle } from "./ThemeModeToggle";
 
 interface StudioHeaderProps {
   children?: React.ReactNode;
@@ -38,14 +39,17 @@ export function StudioHeader(props: StudioHeaderProps) {
           {props.children}
         </div>
 
-        {props.endContent != null ? (
-          <div
-            data-testid="studio-header-end-controls"
-            className="flex shrink-0 items-center gap-2 pl-2"
-          >
-            {props.endContent}
-          </div>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2 pl-2">
+          {props.endContent != null ? (
+            <div
+              data-testid="studio-header-end-controls"
+              className="flex items-center gap-2"
+            >
+              {props.endContent}
+            </div>
+          ) : null}
+          <ThemeModeToggle />
+        </div>
       </div>
     </div>
   );

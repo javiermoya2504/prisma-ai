@@ -16,6 +16,7 @@ const requestLlm =
   vi.fn<(request: { prompt: string; task: string }) => Promise<string>>();
 const setViewParam = vi.fn(() => Promise.resolve(new URLSearchParams()));
 let navigation: Record<string, unknown> = {};
+let studioOverrides: Record<string, unknown> = {};
 
 const students = {
   columns: {
@@ -58,6 +59,7 @@ vi.mock("../context", () => ({
     hasDatabase: true,
     requestLlm,
     sqlEditorStateCollection: {},
+    ...studioOverrides,
   }),
 }));
 vi.mock("../../hooks/use-navigation", () => ({
@@ -115,17 +117,21 @@ function render() {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  const tree = () => (
+    <>
+      <StudioAssistantPanel />
+      <StudioAssistantLauncher />
+      <State />
+    </>
+  );
   act(() => {
-    root.render(
-      <>
-        <StudioAssistantPanel />
-        <StudioAssistantLauncher />
-        <State />
-      </>,
-    );
+    root.render(tree());
   });
   return {
     container,
+    rerender() {
+      act(() => root.render(tree()));
+    },
     cleanup() {
       act(() => root.unmount());
       container.remove();
@@ -172,6 +178,7 @@ describe("StudioAssistantPanel", () => {
   });
 
   afterEach(() => {
+    studioOverrides = {};
     requestLlm.mockReset();
     setViewParam.mockClear();
   });
@@ -274,6 +281,56 @@ describe("StudioAssistantPanel", () => {
 
     expect(setViewParam).not.toHaveBeenCalled();
     expect(latestHandoff?.sql).toBe("select id from students");
+    cleanup();
+  });
+
+  it("keeps provider settings out of the chat, in a dialog that closes once connected", async () => {
+    navigation = {
+      metadata: { activeTable: undefined },
+      schemaParam: "public",
+      setViewParam,
+      viewParam: "schema",
+    };
+    studioOverrides = {
+      aiSettings: <button type="button">Use OpenAI</button>,
+      hasAiSql: false,
+    };
+    const { container, cleanup, rerender } = render();
+    await openPanel(container);
+
+    const findUseButton = () =>
+      [...document.querySelectorAll("button")].find(
+        (button) => button.textContent === "Use OpenAI",
+      );
+    expect(findUseButton()).toBeUndefined();
+    expect(
+      container.querySelector('[data-testid="assistant-connect-provider"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Connect provider")!
+        .click();
+    });
+    await flush();
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "AI provider",
+    );
+    expect(findUseButton()).toBeDefined();
+
+    studioOverrides = {
+      aiSettings: <button type="button">Use OpenAI</button>,
+      hasAiSql: true,
+    };
+    rerender();
+    await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="assistant-connect-provider"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="AI provider settings"]'),
+    ).not.toBeNull();
     cleanup();
   });
 });

@@ -45,7 +45,10 @@ describe("StudioHeader", () => {
     const navigationButton = container.querySelector("button");
 
     expect(container.textContent).toContain("Filters");
-    expect(container.querySelectorAll("button")).toHaveLength(2);
+    expect(container.querySelectorAll("button")).toHaveLength(3);
+    expect(
+      container.querySelector('[data-testid="studio-theme-toggle"]'),
+    ).not.toBeNull();
     expect(headerEndControls?.querySelectorAll("button")).toHaveLength(1);
     expect(navigationButton?.getAttribute("aria-label")).toBe(
       "Close navigation",
@@ -77,7 +80,10 @@ describe("StudioHeader", () => {
     expect(
       container.querySelector('[data-testid="studio-header-end-controls"]'),
     ).toBeNull();
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.querySelectorAll("button")).toHaveLength(2);
+    expect(
+      container.querySelector('[data-testid="studio-theme-toggle"]'),
+    ).not.toBeNull();
     expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
       "Close navigation",
     );
