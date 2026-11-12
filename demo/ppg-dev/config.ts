@@ -1,6 +1,7 @@
 export interface DemoConfig {
   ai: {
     enabled: boolean;
+    configurable: boolean;
   };
   bootId: string;
   database: {
@@ -38,6 +39,10 @@ function parseOptionalBooleanEnv(
   return undefined;
 }
 
+export function resolveDemoAiConfigurable(envValue?: string): boolean {
+  return parseOptionalBooleanEnv(envValue) ?? true;
+}
+
 export function resolveDemoAiEnabled(args: {
   anthropicApiKey: string;
   envValue?: string;
@@ -51,6 +56,7 @@ export function resolveDemoAiEnabled(args: {
 
 export function buildDemoConfig(args: {
   aiEnabled: boolean;
+  aiConfigurable?: boolean;
   bootId: string;
   databaseEnabled: boolean;
   queryInsightsEnabled?: boolean;
@@ -69,6 +75,7 @@ export function buildDemoConfig(args: {
   return {
     ai: {
       enabled: aiEnabled,
+      configurable: args.aiConfigurable ?? true,
     },
     bootId,
     database: {

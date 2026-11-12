@@ -15,6 +15,7 @@ describe("buildDemoConfig", () => {
     expect(config).toEqual({
       ai: {
         enabled: true,
+        configurable: true,
       },
       bootId: "boot-123",
       database: {
@@ -43,6 +44,7 @@ describe("buildDemoConfig", () => {
     expect(config).toEqual({
       ai: {
         enabled: false,
+        configurable: true,
       },
       bootId: "boot-456",
       database: {

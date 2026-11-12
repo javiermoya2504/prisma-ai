@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createContext,
   type PropsWithChildren,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -101,8 +102,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function getViewTransitionStarter():
-  | DocumentWithViewTransition["startViewTransition"]
-  | undefined {
+  DocumentWithViewTransition["startViewTransition"] | undefined {
   if (typeof document === "undefined" || prefersReducedMotion()) {
     return undefined;
   }
@@ -256,6 +256,7 @@ interface StudioContextValue {
   adapter: Adapter;
   hasDatabase: boolean;
   llm?: StudioLlm;
+  aiSettings?: ReactNode;
   queryInsights?: Adapter["queryInsights"];
   streamsUrl?: string;
   hasAiFilter: boolean;
@@ -302,6 +303,7 @@ export type StudioContextProviderProps = PropsWithChildren<{
   adapter: Adapter;
   hasDatabase?: boolean;
   llm?: StudioLlm;
+  aiSettings?: ReactNode;
   onEvent?: (event: StudioEvent) => void;
   streamsUrl?: string;
   theme?: CustomTheme | string;
@@ -310,6 +312,7 @@ export type StudioContextProviderProps = PropsWithChildren<{
 export function StudioContextProvider(props: StudioContextProviderProps) {
   const {
     children,
+    aiSettings,
     onEvent: emitEvent,
     adapter,
     hasDatabase = true,
@@ -488,8 +491,7 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
   const getOrCreateRowsCollection = useCallback(
     <T,>(key: string, factory: () => T): T => {
       const existingCollection = rowsCollectionCacheRef.current.get(key) as
-        | T
-        | undefined;
+        T | undefined;
 
       if (existingCollection != null) {
         return existingCollection;
@@ -856,6 +858,7 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
       <StudioContext.Provider
         value={{
           adapter,
+          aiSettings,
           hasDatabase,
           llm,
           queryInsights,

@@ -1,11 +1,7 @@
 import { createRoot } from "react-dom/client";
 
-import type { Adapter } from "../../data/adapter";
-import { createStudioBFFClient } from "../../data/bff";
-import { createPostgresAdapter } from "../../data/postgres-core";
 import type { DemoConfig } from "./config";
 import { DemoApp } from "./DemoShell";
-import { createNoDatabaseAdapter } from "./no-database-adapter";
 
 const rootElement = document.getElementById("root");
 
@@ -35,29 +31,15 @@ async function bootstrap(): Promise<void> {
   }
 
   const config = (await configResponse.json()) as DemoConfig;
-  let adapter: Adapter;
-
-  if (config.database.enabled) {
-    const bffClient = createStudioBFFClient({
-      queryInsights: config.queries.enabled === true,
-      url: "/api/query",
-    });
-
-    adapter = createPostgresAdapter({
-      executor: bffClient,
-      queryInsights: bffClient.queryInsights,
-    });
-  } else {
-    adapter = createNoDatabaseAdapter();
-  }
 
   root.render(
     <DemoApp
-      adapter={adapter}
       bootId={config.bootId}
-      hasDatabase={config.database.enabled}
+      demoDatabase={config.database.enabled}
+      queryInsights={config.queries.enabled === true}
       seededAt={config.seededAt}
       aiEnabled={config.ai?.enabled === true}
+      aiConfigurable={config.ai?.configurable === true}
       streamsUrl={config.streams?.url}
     />,
   );

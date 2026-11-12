@@ -309,3 +309,29 @@ These are the current high-signal places where Studio is bypassing a plausible s
   - The Bklit registry components provide the chart primitives, but the SQL result surface still needs a custom `DataGrid.getBeforeHeaderRows(...)` composition so the chart scrolls with the result grid.
 - Confidence:
   - High
+
+### SQL AI Assistant Docked Panel
+
+- Files:
+  - [`ui/studio/views/sql/SqlAiPanel.tsx`](ui/studio/views/sql/SqlAiPanel.tsx)
+  - [`ui/studio/views/sql/SqlView.tsx`](ui/studio/views/sql/SqlView.tsx)
+- Current UI:
+  - A fixed-width `<aside>` docked to the right of the SQL workspace inside a flex row, so opening it narrows the editor and results instead of covering them. A ghost icon `Button` closes it. Its header mirrors `StudioHeader` height, and its sections reuse the navigation block heading style through a small `PanelSection` helper (optionally collapsible with a chevron). Contents are standard `Button`, `Textarea`, `Alert`, `Input`, `Checkbox`, and `ToggleGroup`.
+- Plausible standard ShadCN alternative:
+  - `Sheet`: rejected because it is a modal overlay that dims and blocks the editor, while the assistant must stay open next to the editor and results the user is working with, like the chat panes in AI-enabled editors.
+  - `Sidebar` (`side="right"`): would fit, but it requires a `SidebarProvider` around the Studio shell and pulls in its own layout state for a single panel.
+  - `Resizable`: a possible later improvement for drag-to-resize, but it adds the `react-resizable-panels` dependency.
+- Confidence:
+  - Medium
+
+### SQL AI Assistant Floating Launcher
+
+- Files:
+  - [`ui/studio/views/sql/SqlAiLauncher.tsx`](ui/studio/views/sql/SqlAiLauncher.tsx)
+  - [`ui/studio/Studio.tsx`](ui/studio/Studio.tsx)
+- Current UI:
+  - A standard icon `Button` restyled as a 48px round floating action button, absolutely positioned in the bottom-right of the Studio shell (above grid pagination footers). It is the single entry point to the AI assistant panel and hides while the panel is open.
+- Plausible standard ShadCN alternative:
+  - A navigation item or header `Button`: tried first, but the user found a sidebar entry that opens a right-hand panel disorienting, and a floating launcher is the familiar pattern for AI assistants. ShadCN has no floating action button component.
+- Confidence:
+  - High

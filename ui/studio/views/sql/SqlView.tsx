@@ -29,6 +29,7 @@ import { TableHead, TableRow } from "../../../components/ui/table";
 import { useColumnPinning } from "../../../hooks/use-column-pinning";
 import { useIntrospection } from "../../../hooks/use-introspection";
 import { useNavigation } from "../../../hooks/use-navigation";
+import { useUiState } from "../../../hooks/use-ui-state";
 import type { CellProps } from "../../cell/Cell";
 import { Cell } from "../../cell/Cell";
 import { getCell } from "../../cell/get-cell";
@@ -45,6 +46,8 @@ import {
 } from "./sql-editor-config";
 import { createSqlEditorKeybindings } from "./sql-editor-keybindings";
 import { createSqlLintSource } from "./sql-lint-source";
+import { buildSqlAiSuggestions } from "./sql-ai-suggestions";
+import { SQL_AI_PANEL_STATE_KEY, SqlAiPanel } from "./SqlAiPanel";
 import {
   SqlResultVisualizationChart,
   useSqlResultVisualization,
@@ -257,6 +260,7 @@ const SqlResultGrid = memo(function SqlResultGrid(props: SqlResultGridProps) {
 export function SqlView(_props: ViewProps) {
   const {
     adapter,
+    aiSettings,
     hasAiSql,
     isDarkMode,
     onEvent,
@@ -264,6 +268,13 @@ export function SqlView(_props: ViewProps) {
     sqlEditorStateCollection,
   } = useStudio();
   const { data: introspection } = useIntrospection();
+  // Persistent so the panel stays open across reloads and the OpenRouter
+  // sign-in redirect, like the chat pane in AI-enabled editors.
+  const [isAiPanelOpen, setIsAiPanelOpen] = useUiState(
+    SQL_AI_PANEL_STATE_KEY,
+    false,
+    { persistent: true },
+  );
   const { schemaParam } = useNavigation();
   const { pinnedColumnIds, setPinnedColumnIds } = useColumnPinning();
   const initialPersistedSqlDraft = readPersistedSqlDraft({
@@ -506,6 +517,16 @@ export function SqlView(_props: ViewProps) {
     adapterDefaultSchema: adapter.defaultSchema,
     schemaParam,
   });
+  const aiSuggestions = useMemo(
+    () =>
+      introspection
+        ? buildSqlAiSuggestions({
+            activeSchema: activeSqlSchema,
+            introspection,
+          })
+        : [],
+    [activeSqlSchema, introspection],
+  );
   const sqlEditorSchema = useMemo(() => {
     return createSqlEditorSchemaFromIntrospection({
       defaultSchema: activeSqlSchema,
@@ -620,7 +641,7 @@ export function SqlView(_props: ViewProps) {
         sql: args.sql,
       });
     });
-    focusSqlEditorAtEnd(args.sql);
+    if (!isAiPanelOpen) focusSqlEditorAtEnd(args.sql);
   }
 
   async function resolveValidatedAiSqlGeneration(args: {
@@ -1040,210 +1061,238 @@ export function SqlView(_props: ViewProps) {
     </Button>
   );
 
+  const closeAiPanel = () => {
+    setIsAiPanelOpen(false);
+    focusSqlEditorAtEnd(latestEditorValueRef.current);
+  };
+
   return (
-    <div className="flex flex-1 min-h-0 flex-col h-full overflow-hidden">
-      <StudioHeader endContent={runSqlButton}>
-        {hasAiSql ? (
-          <div className="flex min-w-0 grow items-center gap-2">
-            <Input
-              aria-label="Generate SQL with AI"
-              className="min-w-0 grow"
-              disabled={isGeneratingSql || isCorrectingSql}
-              onMouseDown={() => {
-                void materializeAiPromptHistoryPreview();
-              }}
-              onChange={(event) => {
-                setAiPromptHistoryPreviewIndex(null);
-                setAiPrompt(event.currentTarget.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-                  if (aiPrompt.length === 0 && aiPromptHistory.length > 0) {
-                    event.preventDefault();
-                    cycleAiPromptHistoryPreview(
-                      event.key === "ArrowUp" ? "older" : "newer",
-                    );
-                  }
-                  return;
-                }
-
-                if (aiPromptHistoryPreview) {
-                  if (isIgnoredAiPromptHistoryCommitKey(event.key)) {
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
+      <div
+        data-testid="sql-workspace"
+        className="flex min-w-0 flex-1 min-h-0 flex-col h-full overflow-hidden"
+      >
+        <StudioHeader endContent={<>{runSqlButton}</>}>
+          {hasAiSql ? (
+            <div className="flex min-w-0 grow items-center gap-2">
+              <Input
+                aria-label="Generate SQL with AI"
+                className="min-w-0 grow"
+                disabled={isGeneratingSql || isCorrectingSql}
+                onMouseDown={() => {
+                  void materializeAiPromptHistoryPreview();
+                }}
+                onChange={(event) => {
+                  setAiPromptHistoryPreviewIndex(null);
+                  setAiPrompt(event.currentTarget.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                    if (aiPrompt.length === 0 && aiPromptHistory.length > 0) {
+                      event.preventDefault();
+                      cycleAiPromptHistoryPreview(
+                        event.key === "ArrowUp" ? "older" : "newer",
+                      );
+                    }
                     return;
                   }
 
-                  const didMaterializeHistory =
-                    materializeAiPromptHistoryPreview();
+                  if (aiPromptHistoryPreview) {
+                    if (isIgnoredAiPromptHistoryCommitKey(event.key)) {
+                      return;
+                    }
 
-                  if (didMaterializeHistory && event.key === "Enter") {
-                    event.preventDefault();
-                    return;
+                    const didMaterializeHistory =
+                      materializeAiPromptHistoryPreview();
+
+                    if (didMaterializeHistory && event.key === "Enter") {
+                      event.preventDefault();
+                      return;
+                    }
                   }
-                }
 
-                if (event.key === "Enter") {
-                  event.preventDefault();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void generateSqlFromPrompt();
+                  }
+                }}
+                placeholder={
+                  aiPromptHistoryPreview ?? DEFAULT_AI_PROMPT_PLACEHOLDER
+                }
+                ref={aiPromptInputRef}
+                value={aiPrompt}
+              />
+              <Button
+                disabled={
+                  aiPrompt.trim().length === 0 ||
+                  isGeneratingSql ||
+                  isCorrectingSql
+                }
+                onClick={() => {
                   void generateSqlFromPrompt();
-                }
-              }}
-              placeholder={
-                aiPromptHistoryPreview ?? DEFAULT_AI_PROMPT_PLACEHOLDER
-              }
-              ref={aiPromptInputRef}
-              value={aiPrompt}
-            />
-            <Button
-              disabled={
-                aiPrompt.trim().length === 0 ||
-                isGeneratingSql ||
-                isCorrectingSql
-              }
-              onClick={() => {
-                void generateSqlFromPrompt();
-              }}
-              size="sm"
-              variant="outline"
-            >
-              {isGeneratingSql ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Sparkles className="size-4" />
-              )}
-              Generate SQL
-            </Button>
-          </div>
-        ) : null}
-      </StudioHeader>
-
-      <div
-        data-testid="sql-editor-panel"
-        ref={sqlEditorPanelRef}
-        className="flex min-h-0 max-h-[60%] flex-col gap-3 overflow-y-auto border-b border-border bg-background p-3 [&>*]:shrink-0"
-      >
-        <div className="rounded-md border border-border overflow-hidden bg-background">
-          <CodeMirror
-            aria-label="SQL editor"
-            basicSetup={{
-              foldGutter: false,
-            }}
-            className={[
-              "[&_.cm-editor]:!border-0 [&_.cm-editor]:font-mono",
-              "[&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-muted/30",
-              "[&_.cm-line]:text-[15px] [&_.cm-scroller]:font-mono",
-            ].join(" ")}
-            extensions={sqlEditorExtensions}
-            minHeight="128px"
-            onCreateEditor={(view) => {
-              editorViewRef.current = view;
-              const cursorIndex = view.state.doc.length;
-              view.dispatch({
-                selection: {
-                  anchor: cursorIndex,
-                  head: cursorIndex,
-                },
-              });
-              view.focus();
-            }}
-            onChange={(value) => {
-              hasUserEditedEditorValueRef.current = true;
-              latestEditorValueRef.current = value;
-              setEditorValue(value);
-            }}
-            placeholder="Write SQL..."
-            theme={isDarkMode ? "dark" : "light"}
-            value={editorValue}
-          />
-        </div>
-        {aiGenerationErrorMessage ? (
-          <div className="text-sm text-destructive">
-            <strong>AI SQL generation error:</strong> {aiGenerationErrorMessage}
-          </div>
-        ) : null}
-        {isCorrectingSql ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Correcting SQL with AI...
-          </div>
-        ) : null}
-        {aiGenerationRationale ? (
-          <div className="text-xs text-muted-foreground">
-            <strong>AI rationale:</strong> {aiGenerationRationale}
-          </div>
-        ) : null}
-        {errorMessage ? (
-          <div className="text-sm text-destructive">
-            <strong>Query error:</strong> {errorMessage}
-          </div>
-        ) : null}
-        {aiCorrectionErrorMessage ? (
-          <div className="text-sm text-destructive">
-            <strong>AI SQL correction error:</strong> {aiCorrectionErrorMessage}
-          </div>
-        ) : null}
-        {result ? (
-          <div
-            className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
-            data-testid="sql-result-summary"
-          >
-            <div>
-              {result.rowCount} row(s) returned in {result.durationMs}ms
+                }}
+                size="sm"
+                variant="outline"
+              >
+                {isGeneratingSql ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                Generate SQL
+              </Button>
             </div>
-            {hasAiSql ? (
-              <div className="flex min-w-0 items-center justify-end">
-                {visualization.state.status === "idle" &&
-                visualization.canGenerate ? (
-                  <Button
-                    className="h-auto rounded-none px-0 py-0 text-xs text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
-                    data-testid="sql-result-visualization-action"
-                    onClick={visualization.generateVisualization}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    <Sparkles data-icon="inline-start" />
-                    Visualize data with AI
-                  </Button>
-                ) : null}
-                {visualization.state.status === "loading" ? (
-                  <div
-                    className="flex items-center gap-2 text-xs text-muted-foreground"
-                    data-testid="sql-result-visualization-action"
-                  >
-                    <Loader2 className="size-4 animate-spin" />
-                    Generating graph...
-                  </div>
-                ) : null}
-                {visualization.state.status === "error" ? (
-                  <div
-                    className="max-w-[32rem] text-right text-xs text-destructive"
-                    data-testid="sql-result-visualization-action"
-                  >
-                    {visualization.state.message}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </StudioHeader>
 
-      <div
-        data-testid="sql-result-grid-container"
-        className="grow min-h-0 flex flex-col"
-      >
-        {result == null ? null : (
-          <SqlResultGrid
-            isRunning={isRunning}
-            paginationState={paginationState}
-            pinnedColumnIds={pinnedColumnIds}
-            result={result}
-            rowSelectionState={rowSelectionState}
-            setPaginationState={setPaginationState}
-            setPinnedColumnIds={setPinnedColumnIds}
-            setRowSelectionState={setRowSelectionState}
-            visualizationState={visualization.state}
-          />
-        )}
+        <div
+          data-testid="sql-editor-panel"
+          ref={sqlEditorPanelRef}
+          className="flex min-h-0 max-h-[60%] flex-col gap-3 overflow-y-auto border-b border-border bg-background p-3 [&>*]:shrink-0"
+        >
+          <div className="rounded-md border border-border overflow-hidden bg-background">
+            <CodeMirror
+              aria-label="SQL editor"
+              basicSetup={{
+                foldGutter: false,
+              }}
+              className={[
+                "[&_.cm-editor]:!border-0 [&_.cm-editor]:font-mono",
+                "[&_.cm-gutters]:border-r [&_.cm-gutters]:border-border [&_.cm-gutters]:bg-muted/30",
+                "[&_.cm-line]:text-[15px] [&_.cm-scroller]:font-mono",
+              ].join(" ")}
+              extensions={sqlEditorExtensions}
+              minHeight="128px"
+              onCreateEditor={(view) => {
+                editorViewRef.current = view;
+                const cursorIndex = view.state.doc.length;
+                view.dispatch({
+                  selection: {
+                    anchor: cursorIndex,
+                    head: cursorIndex,
+                  },
+                });
+                view.focus();
+              }}
+              onChange={(value) => {
+                hasUserEditedEditorValueRef.current = true;
+                latestEditorValueRef.current = value;
+                setEditorValue(value);
+              }}
+              placeholder="Write SQL..."
+              theme={isDarkMode ? "dark" : "light"}
+              value={editorValue}
+            />
+          </div>
+          {aiGenerationErrorMessage ? (
+            <div className="text-sm text-destructive">
+              <strong>AI SQL generation error:</strong>{" "}
+              {aiGenerationErrorMessage}
+            </div>
+          ) : null}
+          {isCorrectingSql ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Correcting SQL with AI...
+            </div>
+          ) : null}
+          {aiGenerationRationale ? (
+            <div className="text-xs text-muted-foreground">
+              <strong>AI rationale:</strong> {aiGenerationRationale}
+            </div>
+          ) : null}
+          {errorMessage ? (
+            <div className="text-sm text-destructive">
+              <strong>Query error:</strong> {errorMessage}
+            </div>
+          ) : null}
+          {aiCorrectionErrorMessage ? (
+            <div className="text-sm text-destructive">
+              <strong>AI SQL correction error:</strong>{" "}
+              {aiCorrectionErrorMessage}
+            </div>
+          ) : null}
+          {result ? (
+            <div
+              className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
+              data-testid="sql-result-summary"
+            >
+              <div>
+                {result.rowCount} row(s) returned in {result.durationMs}ms
+              </div>
+              {hasAiSql ? (
+                <div className="flex min-w-0 items-center justify-end">
+                  {visualization.state.status === "idle" &&
+                  visualization.canGenerate ? (
+                    <Button
+                      className="h-auto rounded-none px-0 py-0 text-xs text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                      data-testid="sql-result-visualization-action"
+                      onClick={visualization.generateVisualization}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <Sparkles data-icon="inline-start" />
+                      Visualize data with AI
+                    </Button>
+                  ) : null}
+                  {visualization.state.status === "loading" ? (
+                    <div
+                      className="flex items-center gap-2 text-xs text-muted-foreground"
+                      data-testid="sql-result-visualization-action"
+                    >
+                      <Loader2 className="size-4 animate-spin" />
+                      Generating graph...
+                    </div>
+                  ) : null}
+                  {visualization.state.status === "error" ? (
+                    <div
+                      className="max-w-[32rem] text-right text-xs text-destructive"
+                      data-testid="sql-result-visualization-action"
+                    >
+                      {visualization.state.message}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          data-testid="sql-result-grid-container"
+          className="grow min-h-0 flex flex-col"
+        >
+          {result == null ? null : (
+            <SqlResultGrid
+              isRunning={isRunning}
+              paginationState={paginationState}
+              pinnedColumnIds={pinnedColumnIds}
+              result={result}
+              rowSelectionState={rowSelectionState}
+              setPaginationState={setPaginationState}
+              setPinnedColumnIds={setPinnedColumnIds}
+              setRowSelectionState={setRowSelectionState}
+              visualizationState={visualization.state}
+            />
+          )}
+        </div>
       </div>
+      {isAiPanelOpen && (hasAiSql || aiSettings) ? (
+        <SqlAiPanel
+          onClose={closeAiPanel}
+          settings={aiSettings}
+          enabled={hasAiSql}
+          busy={isGeneratingSql || isCorrectingSql}
+          schema={activeSqlSchema}
+          prompt={aiPrompt}
+          onPromptChange={setAiPrompt}
+          suggestions={aiSuggestions}
+          onGenerate={() => void generateSqlFromPrompt()}
+          error={aiGenerationErrorMessage}
+          sql={pendingAiSqlExecution?.sql}
+          rationale={aiGenerationRationale}
+        />
+      ) : null}
     </div>
   );
 }

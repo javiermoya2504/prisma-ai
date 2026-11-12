@@ -25,3 +25,6 @@ compute.config.json
 .prisma-composer/
 .alchemy/
 .prisma/local.json
+
+# pnpm content-addressable store (created when store-dir points at the repo)
+.pnpm-store/

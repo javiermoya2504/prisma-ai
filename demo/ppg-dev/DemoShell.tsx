@@ -1,10 +1,24 @@
 import { Maximize } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { Adapter } from "../../data/adapter";
-import type { StudioLlm, StudioLlmResponse } from "../../data/llm";
-import { isStudioLlmResponse } from "../../data/llm";
 import { Studio } from "../../ui";
+import {
+  type ConnectionsApi,
+  createConnectionsApi,
+} from "./connections/client-api";
+import {
+  ConnectionsDialog,
+  ConnectionSwitcher,
+} from "./connections/ConnectionManager";
+import { createConnectionAdapter } from "./connections/create-adapter";
+import {
+  DEMO_CONNECTION_ID,
+  type PublicConnection,
+} from "./connections/settings";
+import { useDemoConnections } from "./connections/use-demo-connections";
+import { createNoDatabaseAdapter } from "./no-database-adapter";
+import { useDemoAi } from "./use-demo-ai";
 
 function canUseBrowserFullscreen(): boolean {
   return (
@@ -70,51 +84,56 @@ function DemoFullscreenButton() {
   );
 }
 
+const defaultConnectionsApi = createConnectionsApi();
+
 export function DemoApp(props: {
-  adapter: Adapter;
   aiEnabled: boolean;
+  aiConfigurable?: boolean;
   bootId: string;
-  hasDatabase: boolean;
+  /** Whether the bundled, seeded demo database is running. */
+  demoDatabase: boolean;
+  queryInsights?: boolean;
   seededAt?: string;
   streamsUrl?: string;
+  connectionsApi?: ConnectionsApi;
+  createAdapter?: (connection: PublicConnection) => Adapter;
 }) {
-  const { adapter, aiEnabled, bootId, hasDatabase, seededAt, streamsUrl } =
-    props;
-  const llm: StudioLlm | undefined = aiEnabled
-    ? async (request) => {
-        const response = await fetch("/api/ai", {
-          body: JSON.stringify(request),
-          headers: {
-            "content-type": "application/json",
-          },
-          method: "POST",
-        });
+  const { aiEnabled, bootId, seededAt, streamsUrl } = props;
+  const queryInsights = props.queryInsights ?? props.demoDatabase;
+  const createAdapter =
+    props.createAdapter ??
+    ((connection: PublicConnection) =>
+      createConnectionAdapter(connection, { queryInsights }));
+  const { llm, aiSettings } = useDemoAi({
+    enabled: aiEnabled,
+    configurable: props.aiConfigurable ?? true,
+  });
+  const connectionsApi = props.connectionsApi ?? defaultConnectionsApi;
+  const { active, canManage, connections, isLoaded, reload, select } =
+    useDemoConnections({
+      api: connectionsApi,
+      demoDatabase: props.demoDatabase,
+    });
+  const [isManagerOpen, setIsManagerOpen] = useState(false);
+  const activeId = active?.id ?? null;
+  const activeKind = active?.kind;
+  // Adapter identity must only change when the connection does; Studio is
+  // re-mounted per connection (see `key` below) so caches never mix.
+  const adapter = useMemo(
+    () =>
+      activeId && activeKind
+        ? createAdapter({ ...active })
+        : createNoDatabaseAdapter(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeId, activeKind],
+  );
+  const isDemoActive = activeId === DEMO_CONNECTION_ID;
 
-        let payload: unknown;
-
-        try {
-          payload = (await response.json()) as unknown;
-        } catch {
-          return {
-            code: "request-failed",
-            message: `AI request failed (${response.status} ${response.statusText})`,
-            ok: false,
-          } satisfies StudioLlmResponse;
-        }
-
-        if (isStudioLlmResponse(payload)) {
-          return payload;
-        }
-
-        return {
-          code: "request-failed",
-          message: response.ok
-            ? "AI response did not match the Studio LLM contract."
-            : `AI request failed (${response.status} ${response.statusText})`,
-          ok: false,
-        } satisfies StudioLlmResponse;
-      }
-    : undefined;
+  useEffect(() => {
+    if (isLoaded && canManage && connections.length === 0) {
+      setIsManagerOpen(true);
+    }
+  }, [canManage, connections.length, isLoaded]);
 
   return (
     <div
@@ -146,9 +165,27 @@ export function DemoApp(props: {
           padding: "10px 14px",
         }}
       >
-        <div style={{ display: "flex", gap: "12px", letterSpacing: "0.02em" }}>
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            gap: "12px",
+            letterSpacing: "0.02em",
+            minWidth: 0,
+          }}
+        >
           <strong>Studio + ppg demo</strong>
-          {seededAt ? (
+          {canManage && isLoaded ? (
+            <div className="ps">
+              <ConnectionSwitcher
+                connections={connections}
+                activeId={activeId}
+                onSelect={select}
+                onManage={() => setIsManagerOpen(true)}
+              />
+            </div>
+          ) : null}
+          {seededAt && isDemoActive ? (
             <span>seeded {new Date(seededAt).toLocaleString()}</span>
           ) : null}
         </div>
@@ -157,6 +194,17 @@ export function DemoApp(props: {
           <DemoFullscreenButton />
         </div>
       </header>
+      {canManage ? (
+        <ConnectionsDialog
+          open={isManagerOpen}
+          onOpenChange={setIsManagerOpen}
+          api={connectionsApi}
+          connections={connections}
+          activeId={activeId}
+          onOpenConnection={select}
+          onConnectionsChanged={reload}
+        />
+      ) : null}
 
       <main
         style={{
@@ -167,12 +215,21 @@ export function DemoApp(props: {
           padding: "12px",
         }}
       >
-        <Studio
-          adapter={adapter}
-          hasDatabase={hasDatabase}
-          llm={llm}
-          streamsUrl={streamsUrl}
-        />
+        {isLoaded ? (
+          <Studio
+            key={activeId ?? "no-database"}
+            adapter={adapter}
+            aiSettings={aiSettings}
+            hasDatabase={activeId != null}
+            llm={llm}
+            // Demo streams (prisma-wal, observability) describe the bundled
+            // database, so they are hidden while one of the user's own
+            // databases is open. Streams-only mode (no database) keeps them.
+            streamsUrl={
+              isDemoActive || activeId == null ? streamsUrl : undefined
+            }
+          />
+        ) : null}
       </main>
     </div>
   );

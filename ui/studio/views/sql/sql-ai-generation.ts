@@ -167,6 +167,9 @@ export function buildAiSqlGenerationPrompt(args: {
       return `- ${rule}`;
     }),
     "- Never invent tables or columns that are not listed above.",
+    '- The user may write in any language or use synonyms, singular/plural variants, or translations of table and column names. Map those words to the closest listed table or column (for example, "estudiantes" or "student" should map to a listed "students" table).',
+    "- Write the rationale in the same language as the user request.",
+    "- In the rationale, say which real tables and columns you used when they differ from the user's words, then briefly explain what each main clause does (FROM, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT) so the user learns SQL. Keep it under 80 words.",
     `User request: ${request}`,
     previousSql ? `Previous SQL statement: ${previousSql}` : null,
     queryErrorMessage

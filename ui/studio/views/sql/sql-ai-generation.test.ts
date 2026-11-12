@@ -113,6 +113,39 @@ describe("sql-ai-generation", () => {
     );
   });
 
+  it("asks the model to map synonyms and other languages to real table names", () => {
+    const prompt = buildAiSqlGenerationPrompt({
+      context: buildAiSqlGenerationContext({
+        activeSchema: "public",
+        dialect: "postgresql",
+        introspection: createIntrospectionFixture(),
+      }),
+      request: "dame la tabla organizaciones",
+    });
+
+    expect(prompt).toContain(
+      'The user may write in any language or use synonyms, singular/plural variants, or translations of table and column names. Map those words to the closest listed table or column (for example, "estudiantes" or "student" should map to a listed "students" table).',
+    );
+    expect(prompt).toContain(
+      "Write the rationale in the same language as the user request.",
+    );
+  });
+
+  it("asks for a rationale that teaches how the SQL works", () => {
+    const prompt = buildAiSqlGenerationPrompt({
+      context: buildAiSqlGenerationContext({
+        activeSchema: "public",
+        dialect: "postgresql",
+        introspection: createIntrospectionFixture(),
+      }),
+      request: "show me organizations",
+    });
+
+    expect(prompt).toContain(
+      "In the rationale, say which real tables and columns you used when they differ from the user's words, then briefly explain what each main clause does (FROM, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT) so the user learns SQL. Keep it under 80 words.",
+    );
+  });
+
   it("includes failed SQL and database errors when correcting generated SQL", async () => {
     const aiGenerateSql = vi
       .fn<(prompt: string) => Promise<string>>()

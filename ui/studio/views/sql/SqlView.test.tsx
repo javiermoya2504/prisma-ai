@@ -8,12 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Adapter, AdapterError, AdapterSqlLintResult } from "@/data";
 import type { StudioLlmRequest } from "@/data/llm";
 
+import { SqlAiLauncher } from "./SqlAiLauncher";
 import { SqlView } from "./SqlView";
 
 type StudioMock = ReturnType<typeof createStudioMock>;
 const useStudioMock = vi.fn<() => StudioMock>();
-const useNavigationMock =
-  vi.fn<() => { schemaParam?: string | null | undefined }>();
+const useNavigationMock = vi.fn<
+  () => {
+    schemaParam?: string | null | undefined;
+    setViewParam?: (value: string) => unknown;
+    viewParam?: string;
+  }
+>();
 const setPinnedColumnIdsMock = vi.fn();
 let mockEditorCursorHead = 0;
 let mockEditorDocLength = 0;
@@ -104,60 +110,69 @@ vi.mock("../../../hooks/use-navigation", () => ({
   useNavigation: () => useNavigationMock(),
 }));
 
-vi.mock("@uiw/react-codemirror", () => ({
-  default: (props: {
-    "aria-label"?: string;
-    extensions?: unknown[];
-    onCreateEditor?: (view: {
-      dispatch: (transaction: unknown) => void;
-      focus: () => void;
-      state: {
-        doc: { length: number; toString: () => string };
-        selection: { main: { head: number } };
-      };
-    }) => void;
-    onChange?: (value: string) => void;
-    value?: string;
-  }) => {
-    mockCodeMirrorOnChange = props.onChange;
-    mockCodeMirrorExtensions = props.extensions ?? [];
-    mockEditorDocLength = (props.value ?? "").length;
-    mockEditorDocText = props.value ?? "";
-    props.onCreateEditor?.({
-      dispatch: mockEditorDispatch,
-      focus: mockEditorFocus,
-      state: {
-        doc: {
-          get length() {
-            return mockEditorDocLength;
-          },
-          toString() {
-            return mockEditorDocText;
-          },
-        },
-        selection: {
-          main: {
-            get head() {
-              return mockEditorCursorHead;
+vi.mock("@uiw/react-codemirror", async () => {
+  const { useRef } = await import("react");
+
+  return {
+    default: function MockCodeMirror(props: {
+      "aria-label"?: string;
+      extensions?: unknown[];
+      onCreateEditor?: (view: {
+        dispatch: (transaction: unknown) => void;
+        focus: () => void;
+        state: {
+          doc: { length: number; toString: () => string };
+          selection: { main: { head: number } };
+        };
+      }) => void;
+      onChange?: (value: string) => void;
+      value?: string;
+    }) {
+      mockCodeMirrorOnChange = props.onChange;
+      mockCodeMirrorExtensions = props.extensions ?? [];
+      mockEditorDocLength = (props.value ?? "").length;
+      mockEditorDocText = props.value ?? "";
+      // Real CodeMirror calls onCreateEditor once per mount, not per render.
+      const hasCreatedEditorRef = useRef(false);
+      if (!hasCreatedEditorRef.current) {
+        hasCreatedEditorRef.current = true;
+        props.onCreateEditor?.({
+          dispatch: mockEditorDispatch,
+          focus: mockEditorFocus,
+          state: {
+            doc: {
+              get length() {
+                return mockEditorDocLength;
+              },
+              toString() {
+                return mockEditorDocText;
+              },
+            },
+            selection: {
+              main: {
+                get head() {
+                  return mockEditorCursorHead;
+                },
+              },
             },
           },
-        },
-      },
-    });
+        });
+      }
 
-    return (
-      <textarea
-        aria-label={props["aria-label"] ?? "SQL editor"}
-        onChange={(event) => {
-          mockEditorDocText = event.currentTarget.value;
-          mockEditorDocLength = event.currentTarget.value.length;
-          props.onChange?.(event.currentTarget.value);
-        }}
-        value={props.value ?? ""}
-      />
-    );
-  },
-}));
+      return (
+        <textarea
+          aria-label={props["aria-label"] ?? "SQL editor"}
+          onChange={(event) => {
+            mockEditorDocText = event.currentTarget.value;
+            mockEditorDocLength = event.currentTarget.value.length;
+            props.onChange?.(event.currentTarget.value);
+          }}
+          value={props.value ?? ""}
+        />
+      );
+    },
+  };
+});
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -219,9 +234,11 @@ function createDeferred<T>() {
 
 function createStudioMock(adapter: Adapter): {
   adapter: Adapter;
+  aiSettings?: import("react").ReactNode;
   getOrCreateRowsCollection: ReturnType<typeof vi.fn>;
   hasAiSql: boolean;
   hasCustomTheme: boolean;
+  hasDatabase: boolean;
   isDarkMode: boolean;
   isNavigationOpen: boolean;
   llm: ((request: StudioLlmRequest) => Promise<string>) | undefined;
@@ -303,6 +320,7 @@ function createStudioMock(adapter: Adapter): {
       return typeof llm === "function";
     },
     hasCustomTheme: false,
+    hasDatabase: true,
     isDarkMode: false,
     isNavigationOpen: true,
     onEvent: vi.fn(),
@@ -392,7 +410,12 @@ function renderSqlView() {
   const root = createRoot(container);
 
   act(() => {
-    root.render(<SqlView />);
+    root.render(
+      <>
+        <SqlView />
+        <SqlAiLauncher />
+      </>,
+    );
   });
 
   return {
@@ -420,6 +443,8 @@ afterEach(() => {
 beforeEach(() => {
   useNavigationMock.mockReturnValue({
     schemaParam: "public",
+    setViewParam: vi.fn(),
+    viewParam: "sql",
   });
 });
 
@@ -2205,6 +2230,232 @@ describe("SqlView", () => {
 
     expect(editor.value).toBe("select * from public.organizations limit 7;");
 
+    harness.cleanup();
+  });
+});
+
+function getAiPanel() {
+  return document.querySelector<HTMLElement>(
+    'aside[aria-label="AI assistant"]',
+  );
+}
+
+async function openAiPanel(container: HTMLElement) {
+  // Panel open state lives in shared UI state, so it can survive between tests.
+  if (getAiPanel()) {
+    return;
+  }
+
+  await act(async () => {
+    container
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Open AI assistant"]',
+      )!
+      .click();
+  });
+}
+
+describe("SQL AI side panel", () => {
+  it("docks beside the editor instead of opening a modal overlay", async () => {
+    const { adapter } = createAdapterMock();
+    const studio = createStudioMock(adapter);
+    studio.aiSettings = <div>Provider settings</div>;
+    useStudioMock.mockReturnValue(studio);
+    const harness = renderSqlView();
+    await openAiPanel(harness.container);
+
+    const panel = getAiPanel()!;
+    // Rendered inline in the SQL view layout (not portaled) so it takes space
+    // and pushes the editor and results instead of covering them.
+    expect(harness.container.contains(panel)).toBe(true);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    const workspace = harness.container.querySelector(
+      '[data-testid="sql-workspace"]',
+    )!;
+    expect(workspace.parentElement).toBe(panel.parentElement);
+    expect(workspace.querySelector('[aria-label="SQL editor"]')).not.toBeNull();
+
+    // The floating launcher hides while the panel is open.
+    const launcher = () =>
+      harness.container.querySelector('button[aria-label="Open AI assistant"]');
+    expect(launcher()).toBeNull();
+
+    mockEditorFocus.mockClear();
+    await act(async () => {
+      panel
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Close AI assistant"]',
+        )!
+        .click();
+    });
+    expect(getAiPanel()).toBeNull();
+    expect(launcher()).not.toBeNull();
+    expect(mockEditorFocus).toHaveBeenCalled();
+    harness.cleanup();
+  });
+
+  it("opens from a floating launcher and switches to the SQL view from other views", async () => {
+    const setViewParam = vi.fn();
+    useNavigationMock.mockReturnValue({
+      schemaParam: "public",
+      setViewParam,
+      viewParam: "table",
+    });
+    const { adapter } = createAdapterMock();
+    const studio = createStudioMock(adapter);
+    studio.llm = vi.fn(() => Promise.resolve("{}"));
+    useStudioMock.mockReturnValue(studio);
+    const harness = renderSqlView();
+
+    const launcher = harness.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open AI assistant"]',
+    )!;
+    expect(launcher.className).toContain("rounded-full");
+    expect(
+      Array.from(harness.container.querySelectorAll("button")).some(
+        (button) => button.textContent?.trim() === "AI assistant",
+      ),
+    ).toBe(false);
+    await act(async () => {
+      launcher.click();
+    });
+    expect(setViewParam).toHaveBeenCalledWith("sql");
+    harness.cleanup();
+  });
+
+  it("hides the launcher when AI is not available", () => {
+    const { adapter } = createAdapterMock();
+    useStudioMock.mockReturnValue(createStudioMock(adapter));
+    const harness = renderSqlView();
+    expect(
+      harness.container.querySelector('button[aria-label="Open AI assistant"]'),
+    ).toBeNull();
+    harness.cleanup();
+  });
+
+  it("collapses provider settings once connected so the question stays in view", async () => {
+    const { adapter } = createAdapterMock();
+    const studio = createStudioMock(adapter);
+    studio.aiSettings = <div>Provider settings</div>;
+    studio.llm = vi.fn(() => Promise.resolve("{}"));
+    useStudioMock.mockReturnValue(studio);
+    const harness = renderSqlView();
+    await openAiPanel(harness.container);
+
+    const panel = getAiPanel()!;
+    const providerToggle = Array.from(panel.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Provider"),
+    )!;
+    expect(providerToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(panel.textContent).toContain("Connected");
+    expect(panel.textContent).not.toContain("Provider settings");
+    expect(panel.querySelector("#studio-ai-question")).not.toBeNull();
+
+    await act(async () => {
+      providerToggle.click();
+    });
+    expect(panel.textContent).toContain("Provider settings");
+    harness.cleanup();
+  });
+
+  it("opens settings without a key and disables generation until configured", async () => {
+    const { adapter } = createAdapterMock();
+    const studio = createStudioMock(adapter);
+    studio.aiSettings = <div>Provider settings</div>;
+    useStudioMock.mockReturnValue(studio);
+    const harness = renderSqlView();
+    await openAiPanel(harness.container);
+    const panel = getAiPanel()!;
+    expect(panel.textContent).toContain("Provider settings");
+    expect(panel.textContent).toContain("Ask your database");
+    const generate = Array.from(panel.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Generate query"),
+    )!;
+    expect(generate.disabled).toBe(true);
+    harness.cleanup();
+  });
+
+  it("suggests schema-based questions without calling AI and fills the question on click", async () => {
+    const { adapter, rawSpy } = createAdapterMock();
+    const studio = createStudioMock(adapter);
+    const llm = vi.fn(() => Promise.resolve("{}"));
+    studio.llm = llm;
+    useStudioMock.mockReturnValue(studio);
+    const harness = renderSqlView();
+    await openAiPanel(harness.container);
+
+    const panel = getAiPanel()!;
+    expect(panel.textContent).toContain("Try asking");
+    const suggestion = Array.from(panel.querySelectorAll("button")).find(
+      (button) => button.textContent === "Show 10 rows from organizations",
+    );
+    expect(suggestion).toBeDefined();
+
+    await act(async () => {
+      suggestion!.click();
+    });
+
+    expect(
+      document.querySelector<HTMLTextAreaElement>("#studio-ai-question")?.value,
+    ).toBe("Show 10 rows from organizations");
+    expect(llm).not.toHaveBeenCalled();
+    expect(rawSpy).not.toHaveBeenCalled();
+    harness.cleanup();
+  });
+
+  it("generates from the panel, previews SQL, and leaves execution to the user", async () => {
+    const { adapter, rawSpy } = createAdapterMock();
+    const studio = createStudioMock(adapter);
+    studio.llm = vi.fn(() =>
+      Promise.resolve(
+        JSON.stringify({
+          sql: "SELECT id FROM public.organizations LIMIT 10",
+          rationale: "First ten organizations",
+          shouldGenerateVisualization: false,
+        }),
+      ),
+    );
+    useStudioMock.mockReturnValue(studio);
+    const harness = renderSqlView();
+    await openAiPanel(harness.container);
+    const question = document.querySelector<HTMLTextAreaElement>(
+      "#studio-ai-question",
+    )!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!.call(question, "Show ten organizations");
+      question.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      question
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(studio.requestLlm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "sql-generation",
+        prompt: expect.stringContaining("public.organizations"),
+      }),
+    );
+    expect(document.querySelector("#studio-ai-sql-preview")?.textContent).toBe(
+      "SELECT id FROM public.organizations LIMIT 10",
+    );
+    expect(mockEditorDocText).toBe(
+      "SELECT id FROM public.organizations LIMIT 10",
+    );
+    expect(rawSpy).not.toHaveBeenCalled();
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Review in SQL editor"))!
+        .click();
+    });
+    expect(getAiPanel()).toBeNull();
+    expect(mockEditorFocus).toHaveBeenCalled();
     harness.cleanup();
   });
 });

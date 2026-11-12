@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { JSX } from "react";
+import { JSX, type ReactNode } from "react";
 
 import type { Adapter, AdapterError, Query } from "../../data";
 import type { StudioLlm } from "../../data/llm";
@@ -17,6 +17,7 @@ import { ConsoleView } from "./views/console/ConsoleView";
 import { MigrationsView } from "./views/migrations/MigrationsView";
 import { QueriesView } from "./views/queries/QueriesView";
 import { SchemaView } from "./views/schema/SchemaView";
+import { SqlAiLauncher } from "./views/sql/SqlAiLauncher";
 import { SqlView } from "./views/sql/SqlView";
 import { StreamView } from "./views/stream/StreamView";
 import { ActiveTableView } from "./views/table/ActiveTableView";
@@ -50,16 +51,14 @@ export type StudioOperationSuccessEventBase = {
 };
 
 export type StudioOperationEventBase =
-  | StudioOperationSuccessEventBase
-  | StudioOperationErrorEventBase;
+  StudioOperationSuccessEventBase | StudioOperationErrorEventBase;
 export type StudioOperationEvent = StudioOperationEventBase & {
   eventId: string;
   timestamp: string;
 };
 
 export type StudioEventBase =
-  | StudioLaunchedEventBase
-  | StudioOperationEventBase;
+  StudioLaunchedEventBase | StudioOperationEventBase;
 export type StudioEvent = StudioEventBase & {
   eventId: string;
   timestamp: string;
@@ -69,6 +68,8 @@ export interface StudioProps {
   adapter: Adapter;
   hasDatabase?: boolean;
   llm?: StudioLlm;
+  /** Host-owned provider settings rendered inside the AI panel. */
+  aiSettings?: ReactNode;
   onEvent?: (error: StudioEvent) => void;
   streamsUrl?: string;
   /**
@@ -84,6 +85,7 @@ export interface StudioProps {
 export function Studio(props: StudioProps) {
   const {
     adapter,
+    aiSettings,
     hasDatabase = true,
     llm,
     onEvent,
@@ -99,6 +101,7 @@ export function Studio(props: StudioProps) {
   return (
     <StudioContextProvider
       adapter={adapter}
+      aiSettings={aiSettings}
       hasDatabase={hasDatabase}
       llm={llm}
       onEvent={onEvent}
@@ -188,6 +191,8 @@ function StudioContent() {
                 <View />
               )}
             </motion.div>
+
+            <SqlAiLauncher />
           </div>
         </div>
       </StudioCommandPaletteProvider>

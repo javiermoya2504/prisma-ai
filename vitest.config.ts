@@ -68,7 +68,7 @@ export default defineConfig({
           },
           environment: "node",
           exclude: [...configDefaults.exclude, ...localTestExcludes],
-          include: ["demo/**/*.test.ts"],
+          include: ["demo/**/*.test.{ts,tsx}"],
           name: "demo",
         },
       },

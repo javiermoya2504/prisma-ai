@@ -20,7 +20,35 @@ vi.mock("../../ui", () => ({
   },
 }));
 
+import type { ConnectionsApi } from "./connections/client-api";
 import { DemoApp } from "./DemoShell";
+
+const demoConnection = {
+  displayUrl: "Local Prisma Postgres",
+  id: "demo",
+  kind: "postgres",
+  name: "Demo database",
+  source: "demo",
+} as const;
+
+function createConnectionsApiStub(
+  connections: Awaited<ReturnType<ConnectionsApi["list"]>>,
+): ConnectionsApi {
+  return {
+    detect: vi.fn().mockResolvedValue([]),
+    list: vi.fn().mockResolvedValue(connections),
+    remove: vi.fn(),
+    save: vi.fn(),
+    test: vi.fn(),
+  };
+}
+
+async function flushConnections() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -62,15 +90,17 @@ describe("DemoApp", () => {
     act(() => {
       root.render(
         createElement(DemoApp, {
-          adapter: {} as Adapter,
           aiEnabled: false,
           bootId: "boot-1234",
-          hasDatabase: true,
+          connectionsApi: createConnectionsApiStub([demoConnection]),
+          createAdapter: () => ({}) as Adapter,
+          demoDatabase: true,
           seededAt: "2026-03-09T10:00:00.000Z",
           streamsUrl: "/api/streams",
         }),
       );
     });
+    await flushConnections();
 
     const fullscreenButton = container.querySelector(
       'button[aria-label="Enter demo fullscreen"]',
@@ -106,7 +136,7 @@ describe("DemoApp", () => {
     container.remove();
   });
 
-  it("omits the seeded badge when the demo is connected to external data sources", () => {
+  it("omits the seeded badge when the demo is connected to external data sources", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -114,14 +144,16 @@ describe("DemoApp", () => {
     act(() => {
       root.render(
         createElement(DemoApp, {
-          adapter: {} as Adapter,
           aiEnabled: false,
           bootId: "boot-1234",
-          hasDatabase: false,
+          connectionsApi: createConnectionsApiStub([]),
+          createAdapter: () => ({}) as Adapter,
+          demoDatabase: false,
           streamsUrl: "/api/streams",
         }),
       );
     });
+    await flushConnections();
 
     expect(container.textContent).toContain("Studio + ppg demo");
     expect(container.textContent).not.toContain("seeded");
@@ -161,15 +193,17 @@ describe("DemoApp", () => {
     act(() => {
       root.render(
         createElement(DemoApp, {
-          adapter: {} as Adapter,
           aiEnabled: true,
           bootId: "boot-1234",
-          hasDatabase: true,
+          connectionsApi: createConnectionsApiStub([demoConnection]),
+          createAdapter: () => ({}) as Adapter,
+          demoDatabase: true,
           seededAt: "2026-03-09T10:00:00.000Z",
           streamsUrl: "/api/streams",
         }),
       );
     });
+    await flushConnections();
 
     const studioProps = studioMock.mock.calls.at(-1)?.[0] as
       | {
@@ -201,5 +235,55 @@ describe("DemoApp", () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  it("opens the remembered connection with an adapter for its database kind", async () => {
+    localStorage.setItem("studio-demo:active-connection", "saved-1");
+    window.location.hash = "#table=students";
+    const savedConnection = {
+      displayUrl: "/data/school.db",
+      id: "saved-1",
+      kind: "sqlite",
+      name: "school.db",
+      source: "saved",
+    } as const;
+    const createAdapter = vi.fn(() => ({}) as Adapter);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        createElement(DemoApp, {
+          aiEnabled: false,
+          bootId: "boot-1234",
+          connectionsApi: createConnectionsApiStub([
+            demoConnection,
+            savedConnection,
+          ]),
+          createAdapter,
+          demoDatabase: true,
+          seededAt: "2026-03-09T10:00:00.000Z",
+        }),
+      );
+    });
+    await flushConnections();
+
+    expect(createAdapter).toHaveBeenLastCalledWith(savedConnection);
+    expect(studioMock.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ hasDatabase: true }),
+    );
+    expect(
+      container.querySelector('button[aria-label="Switch database"]')
+        ?.textContent,
+    ).toContain("school.db");
+    // The seeded timestamp only describes the bundled demo database.
+    expect(container.textContent).not.toContain("seeded");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    localStorage.removeItem("studio-demo:active-connection");
   });
 });

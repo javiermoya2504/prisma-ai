@@ -6,16 +6,24 @@ import postcss, { type AcceptedPlugin } from "postcss";
 import type { Sql } from "postgres";
 
 import { serializeError, type StudioBFFRequest } from "../../data/bff";
-import {
-  STUDIO_LLM_TASKS,
-  type StudioLlmErrorCode,
-  type StudioLlmRequest,
-  type StudioLlmResponse,
-} from "../../data/llm";
 import type { Query } from "../../data/query";
 import pkg from "../../package.json" with { type: "json" };
-import { AnthropicOutputLimitError, runAnthropicLlmRequest } from "./anthropic";
-import { buildDemoConfig, resolveDemoAiEnabled } from "./config";
+import { handleDemoAiRequest } from "./ai-handler";
+import { AI_PROVIDERS } from "./ai-settings";
+import {
+  buildDemoConfig,
+  resolveDemoAiConfigurable,
+  resolveDemoAiEnabled,
+} from "./config";
+import {
+  CONNECTIONS_PATH,
+  createConnectionsService,
+} from "./connections/handler";
+import { DEMO_CONNECTION_ID } from "./connections/settings";
+import {
+  createConnectionStore,
+  resolveConnectionsFile,
+} from "./connections/store";
 import { createDemoQueryInsightsStore } from "./query-insights";
 import { type DemoRuntime, startDemoRuntime } from "./runtime";
 import {
@@ -49,7 +57,10 @@ declare const Bun: {
     success: boolean;
   }>;
   serve(options: {
-    fetch(request: Request): Promise<Response> | Response;
+    fetch(
+      request: Request,
+      server: { requestIP(request: Request): { address: string } | null },
+    ): Promise<Response> | Response;
     idleTimeout?: number;
     hostname?: string;
     port: number;
@@ -101,6 +112,10 @@ const AI_ENABLED = resolveDemoAiEnabled({
     process.env.STUDIO_DEMO_AI_ENABLED ??
     process.env.STUDIO_DEMO_AI_FILTERING_ENABLED,
 });
+const AI_CONFIGURABLE = resolveDemoAiConfigurable(
+  process.env.STUDIO_DEMO_AI_ENABLED ??
+    process.env.STUDIO_DEMO_AI_FILTERING_ENABLED,
+);
 const BOOT_ID = crypto.randomUUID();
 const STREAMS_PROXY_BASE_PATH = "/api/streams";
 const CACHE_CONTROL_STATIC = isProduction
@@ -161,48 +176,12 @@ let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
 const reloadClients = new Set<ReadableStreamDefaultController<string>>();
 let queryQueue = Promise.resolve();
 const queryInsightsStore = createDemoQueryInsightsStore();
+let connectionsService: ReturnType<typeof createConnectionsService> | null =
+  null;
+
+type RequestContext = { remoteAddress: string | null };
 
 const cleanupCallbacks: Array<() => Promise<void> | void> = [];
-
-function createAiResponseInit(status = 200): ResponseInit {
-  return {
-    headers: {
-      "content-type": "application/json",
-    },
-    status,
-  };
-}
-
-function createAiErrorResponse(args: {
-  code: StudioLlmErrorCode;
-  message: string;
-  status?: number;
-}): Response {
-  const { code, message, status } = args;
-  const payload: StudioLlmResponse = {
-    code,
-    message,
-    ok: false,
-  };
-
-  return new Response(JSON.stringify(payload), createAiResponseInit(status));
-}
-
-function createAiSuccessResponse(text: string): Response {
-  const payload: StudioLlmResponse = {
-    ok: true,
-    text,
-  };
-
-  return new Response(JSON.stringify(payload), createAiResponseInit());
-}
-
-function isStudioLlmTask(value: unknown): value is StudioLlmRequest["task"] {
-  return (
-    typeof value === "string" &&
-    STUDIO_LLM_TASKS.includes(value as StudioLlmRequest["task"])
-  );
-}
 
 function resolveProjectRoot(): string {
   if (process.env.STUDIO_DEMO_ROOT) {
@@ -286,6 +265,18 @@ async function main(): Promise<void> {
   seededAt = runtime.seededAt;
   streamsServerUrl = runtime.streamsServerUrl;
 
+  const connectionsFile = resolveConnectionsFile();
+  const service = createConnectionsService({
+    demo: {
+      available: runtime.postgresExecutor != null,
+      url: runtime.databaseConnectionString,
+    },
+    store: createConnectionStore(connectionsFile),
+  });
+  connectionsService = service;
+  cleanupCallbacks.push(() => service.closeAll());
+  console.info(`[demo] saved connections file: ${connectionsFile}`);
+
   if (prebuiltAssets) {
     appScript = prebuiltAssets.appScript;
     appStyles = prebuiltAssets.appStyles;
@@ -302,7 +293,10 @@ async function main(): Promise<void> {
   }
 
   const server = Bun.serve({
-    fetch: (request) => handleRequest(request),
+    fetch: (request, bunServer) =>
+      handleRequest(request, {
+        remoteAddress: bunServer.requestIP(request)?.address ?? null,
+      }),
     hostname: "0.0.0.0",
     idleTimeout: 120,
     port: APP_PORT,
@@ -344,7 +338,10 @@ async function main(): Promise<void> {
   }
 }
 
-async function handleRequest(request: Request): Promise<Response> {
+async function handleRequest(
+  request: Request,
+  context: RequestContext,
+): Promise<Response> {
   const url = new URL(request.url);
 
   if (url.pathname === "/") {
@@ -357,6 +354,7 @@ async function handleRequest(request: Request): Promise<Response> {
     return Response.json(
       buildDemoConfig({
         aiEnabled: AI_ENABLED,
+        aiConfigurable: AI_CONFIGURABLE,
         bootId: BOOT_ID,
         databaseEnabled: postgresExecutor != null,
         queryInsightsEnabled: postgresExecutor != null,
@@ -366,12 +364,42 @@ async function handleRequest(request: Request): Promise<Response> {
     );
   }
 
+  if (
+    url.pathname === CONNECTIONS_PATH ||
+    url.pathname.startsWith(`${CONNECTIONS_PATH}/`)
+  ) {
+    if (!connectionsService) {
+      return new Response("Connections are not ready", { status: 503 });
+    }
+
+    return await connectionsService.handleRequest(request, context);
+  }
+
   if (url.pathname === "/api/query") {
+    const connectionId = url.searchParams.get("connection");
+
+    if (connectionId && connectionId !== DEMO_CONNECTION_ID) {
+      return await handleSavedConnectionQueryRequest(
+        request,
+        connectionId,
+        context,
+      );
+    }
+
     return await handleBffQueryRequest(request);
   }
 
   if (url.pathname === "/api/ai") {
-    return await handleAiRequest(request);
+    return await handleDemoAiRequest(request, {
+      enabled: AI_CONFIGURABLE,
+      defaultSettings: AI_ENABLED
+        ? {
+            provider: "anthropic",
+            apiKey: ANTHROPIC_API_KEY,
+            model: AI_PROVIDERS.anthropic.model,
+          }
+        : undefined,
+    });
   }
 
   if (
@@ -440,6 +468,33 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   return new Response("Not Found", { status: 404 });
+}
+
+async function handleSavedConnectionQueryRequest(
+  request: Request,
+  connectionId: string,
+  context: RequestContext,
+): Promise<Response> {
+  if (request.method !== "POST") {
+    return new Response("Method Not Allowed", {
+      headers: { Allow: "POST" },
+      status: 405,
+    });
+  }
+
+  if (!connectionsService) {
+    return new Response("Connections are not ready", { status: 503 });
+  }
+
+  let payload: StudioBFFRequest;
+
+  try {
+    payload = (await request.json()) as StudioBFFRequest;
+  } catch {
+    return new Response("Invalid JSON payload", { status: 400 });
+  }
+
+  return await connectionsService.handleQuery(payload, connectionId, context);
 }
 
 async function handleBffQueryRequest(request: Request): Promise<Response> {
@@ -616,85 +671,6 @@ async function executeAndRecordQuery(
   }
 
   return result;
-}
-
-async function handleAiRequest(request: Request): Promise<Response> {
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        Allow: "POST,OPTIONS",
-      },
-      status: 204,
-    });
-  }
-
-  if (request.method !== "POST") {
-    return createAiErrorResponse({
-      code: "request-failed",
-      message: "Method Not Allowed",
-      status: 405,
-    });
-  }
-
-  if (!AI_ENABLED) {
-    return createAiErrorResponse({
-      code: "not-configured",
-      message: "Studio AI is not configured.",
-      status: 503,
-    });
-  }
-
-  let payload: unknown;
-
-  try {
-    payload = await request.json();
-  } catch {
-    return createAiErrorResponse({
-      code: "request-failed",
-      message: "Invalid JSON payload",
-      status: 400,
-    });
-  }
-
-  const prompt = (payload as { prompt?: unknown }).prompt;
-  const task = (payload as { task?: unknown }).task;
-
-  if (typeof prompt !== "string" || prompt.trim().length === 0) {
-    return createAiErrorResponse({
-      code: "request-failed",
-      message: "Prompt is required.",
-      status: 400,
-    });
-  }
-
-  if (!isStudioLlmTask(task)) {
-    return createAiErrorResponse({
-      code: "request-failed",
-      message: "Task is required.",
-      status: 400,
-    });
-  }
-
-  try {
-    const text = await runAnthropicLlmRequest({
-      apiKey: ANTHROPIC_API_KEY,
-      request: {
-        prompt,
-        task,
-      },
-    });
-
-    return createAiSuccessResponse(text);
-  } catch (error) {
-    return createAiErrorResponse({
-      code:
-        error instanceof AnthropicOutputLimitError
-          ? "output-limit-exceeded"
-          : "request-failed",
-      message: error instanceof Error ? error.message : String(error),
-      status: 502,
-    });
-  }
 }
 
 async function handleStreamsProxyRequest(

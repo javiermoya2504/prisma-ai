@@ -25,6 +25,12 @@ The local `ppg-dev` demo can be packaged into a Compute-ready artifact instead o
 The deploy builder precompiles the browser JS/CSS, injects those assets into the bundled server, copies Prisma Dev's PGlite runtime assets into the bundle with stable filenames, and bundles the Prisma Streams worker into `touch/` so the Compute artifact can boot and keep WAL-to-stream syncing alive outside the repo checkout.
 The same demo entrypoint can also run against external development infrastructure through `pnpm demo:ppg -- --database-url <postgres-url> --streams-server-url <streams-url>`, or in streams-only mode through `pnpm demo:ppg -- --streams-server-url <streams-url>`. In those modes, Studio keeps serving the local shell and `/api/streams` proxy, but skips local Prisma Dev startup, local Streams startup, WAL wiring, and local seeding so you can point the demo at an already-running backend stack.
 
+## Open Your Own Databases In The Demo
+
+The local demo is not limited to its seeded database: a switcher in the demo header opens any PostgreSQL, MySQL, or SQLite database on your machine or your own servers, so Studio (including the AI assistant) works on real data without Prisma Console.
+Local databases are found automatically (Postgres/MySQL on their default local ports, SQLite files in your project folders, and `DATABASE_URL`) and connect with one click; others are added with host, user, and password, a connection URL, or a SQLite file path, and are tested before they are saved.
+Saved credentials stay on the demo server in an owner-only file (`~/.prisma-studio-ai/connections.json`, override with `STUDIO_CONNECTIONS_FILE`) and are never sent to the browser; connection management only answers requests from the same machine.
+
 ## Streams-Only Studio Shell
 
 Studio can run without a database connection when a Streams server is configured, which makes it usable as a focused event-log and stream-search tool.
@@ -252,7 +258,7 @@ When users switch to a different table and later come back, the inline pills res
 
 ## AI-Assisted Table Filters
 
-Embedders can optionally provide a single async `llm` hook on `Studio`, and the table filter flow uses that shared transport with a `table-filter` task. This is the only supported AI integration surface.
+Embedders can optionally provide a single async `llm` hook on `Studio`, and the table filter flow uses that shared transport with a `table-filter` task. This is the only supported AI transport; the optional `aiSettings` prop only lets the host render its own provider settings inside the AI panel.
 When configured, the table toolbar shows a single shared filter control: the left side opens the manual filter picker and the right side acts as an inline AI prompt that expands in place without adding a second bordered field. If no `llm` hook is provided, Studio falls back to the compact manual filter button with no empty AI affordance.
 The shared shell keeps the surrounding toolbar buttons aligned and preserves a clear gap to the refresh or other host-supplied end controls as it grows. The local demo can also disable all AI affordances explicitly through `STUDIO_DEMO_AI_ENABLED=false`, which is useful when an Anthropic key is present but the embed should behave like a manual-only Studio.
 The local Anthropic-backed demo keeps provider secrets and prompt text out of request logs, so enabling the sample `llm` flow does not echo credentials or user input into terminal output.
@@ -292,6 +298,23 @@ When SQL lint validation is available, generated SQL is validated before it is s
 Submitted AI requests are also stored locally in the SQL-view TanStack collection, so an empty focused prompt field can browse older requests with `ArrowUp` / `ArrowDown` as placeholder-only previews before committing one back into the input for editing.
 Provider output-limit failures are surfaced explicitly and can feed into the next JSON-correction prompt instead of showing up as a vague parse failure. The visualization decision from AI generation is also preserved so the later manual run can still auto-chart graph-worthy results.
 If AI-generated SQL fails when the user runs it, Studio sends the original request, failed SQL, and database error back to the model, then replaces the editor with a corrected query without auto-running it.
+
+## SQL AI Assistant Panel
+
+A floating round AI button in the bottom-right corner of Studio opens an assistant panel from any view, so asking your database a question in plain language is always one click away. The panel docks to the right of the SQL editor and pushes the editor and results aside instead of covering them, and it stays open across reloads.
+It generates SQL adapted to your real schema, previews it, and writes it into the editor without running it, so you always see and run the SQL yourself and results appear in the normal grid below. The panel uses Studio's own typography and section styling, and the provider section collapses once you are connected so the question box stays in view.
+Hosts can pass an `aiSettings` element that Studio renders in the panel. The local demo uses it to pick OpenAI, Anthropic, Gemini, or OpenRouter and paste an API key that stays in the tab's memory unless you choose `Remember on this device`.
+
+## OpenRouter Sign-In For The Demo AI
+
+Instead of copying an API key, you can press `Connect with OpenRouter`, sign in on openrouter.ai, and come back with a key created for Studio, which gives one account access to GPT, Claude, Gemini, and many other models.
+It uses OpenRouter's OAuth PKCE flow entirely in the browser (S256 challenge plus a verified `state`), removes the one-time code from the URL, and reopens Studio where you were. ChatGPT and Claude consumer subscriptions cannot be used by third-party apps, so OpenRouter is the supported single sign-in option.
+
+## AI Assistant Suggested Questions
+
+The SQL AI assistant panel shows up to five starter questions built from your real schema, so you can discover what your database can answer without knowing its table names first.
+Suggestions are computed locally from introspection (foreign-key relationships, per-month counts on date columns, averages on numeric columns, and row previews) and never call the AI; picking one only fills the question field, and AI is used only when you press Generate query.
+Questions can be written in any language or with synonyms (for example "estudiantes" for a `students` table): the model maps them to the real names, and the explanation under the generated SQL says which tables it used and what each clause does, so you learn the SQL instead of just getting a result.
 
 ## AI SQL Result Visualization
 
