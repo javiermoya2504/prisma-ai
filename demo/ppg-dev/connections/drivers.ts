@@ -14,6 +14,7 @@ import {
 } from "../../../data/postgresjs";
 import { asQuery } from "../../../data/query";
 import { lintPostgresSql } from "../sql-lint";
+import { STUDIO_APPLICATION_NAME, STUDIO_SQL_MARKER } from "./pg-activity";
 import type { DatabaseKind, StoredConnection } from "./settings";
 
 const CONNECT_TIMEOUT_SECONDS = 5;
@@ -31,7 +32,7 @@ export interface OpenConnection {
 }
 
 export type OpenConnectionFn = (
-  connection: Pick<StoredConnection, "kind" | "url">,
+  connection: Pick<StoredConnection, "kind" | "url" | "readOnly">,
 ) => OpenConnection;
 
 export const openDatabaseConnection: OpenConnectionFn = (connection) => {
@@ -43,6 +44,14 @@ export const openDatabaseConnection: OpenConnectionFn = (connection) => {
         connect_timeout: CONNECT_TIMEOUT_SECONDS,
         max: 4,
         onnotice: () => {},
+        connection: {
+          application_name: STUDIO_APPLICATION_NAME,
+          // Every transaction in read-only sessions is READ ONLY, so writes
+          // fail in Postgres itself, not only in the UI.
+          ...(connection.readOnly
+            ? { default_transaction_read_only: true }
+            : {}),
+        },
       });
 
       return {
@@ -59,6 +68,15 @@ export const openDatabaseConnection: OpenConnectionFn = (connection) => {
         uri: connection.url,
       });
 
+      if (connection.readOnly) {
+        // Applied to each pooled connection before it serves any query.
+        pool.on("connection", (pooled) => {
+          void Promise.resolve(
+            pooled.query("SET SESSION TRANSACTION READ ONLY"),
+          ).catch(() => {});
+        });
+      }
+
       return {
         kind: "mysql",
         executor: createMySQL2Executor(pool),
@@ -71,7 +89,9 @@ export const openDatabaseConnection: OpenConnectionFn = (connection) => {
         throw new Error(`SQLite file not found: ${connection.url}`);
       }
 
-      const database = new DatabaseSync(connection.url);
+      const database = new DatabaseSync(connection.url, {
+        readOnly: connection.readOnly === true,
+      });
 
       return {
         kind: "sqlite",
@@ -93,7 +113,9 @@ export async function testDatabaseConnection(
   const opened = open(connection);
 
   try {
-    const [error] = await opened.executor.execute(asQuery("select 1 as ok"));
+    const [error] = await opened.executor.execute(
+      asQuery(`select ${STUDIO_SQL_MARKER} 1 as ok`),
+    );
 
     if (error) throw error;
   } finally {
@@ -105,22 +127,25 @@ export async function testDatabaseConnection(
 export function createConnectionPool(open: OpenConnectionFn) {
   const openConnections = new Map<
     string,
-    { url: string; connection: OpenConnection }
+    { signature: string; connection: OpenConnection }
   >();
+  const signatureOf = (connection: StoredConnection) =>
+    `${connection.readOnly === true ? "ro" : "rw"}:${connection.url}`;
 
   return {
     get(connection: StoredConnection): OpenConnection {
       const existing = openConnections.get(connection.id);
+      const signature = signatureOf(connection);
 
-      if (existing && existing.url === connection.url) {
+      if (existing?.signature === signature) {
         return existing.connection;
       }
 
+      // URL or read-only mode changed: never keep using the old session.
+      void existing?.connection.close().catch(() => {});
+
       const opened = open(connection);
-      openConnections.set(connection.id, {
-        connection: opened,
-        url: connection.url,
-      });
+      openConnections.set(connection.id, { connection: opened, signature });
       return opened;
     },
     async close(id: string) {

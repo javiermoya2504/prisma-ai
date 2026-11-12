@@ -60,7 +60,8 @@ export type MySQLAdapterRequirements = Omit<AdapterRequirements, "executor"> & {
 export function createMySQLAdapter(
   requirements: MySQLAdapterRequirements,
 ): Adapter {
-  const { executor, queryInsights, ...otherRequirements } = requirements;
+  const { activity, executor, queryInsights, ...otherRequirements } =
+    requirements;
   const fullTableSearchState = createFullTableSearchExecutionState();
   let canUseExecutorLintTransport = typeof executor.lintSql === "function";
   const createMySQLAdapterError = (
@@ -252,6 +253,7 @@ export function createMySQLAdapter(
   }
 
   return {
+    activity,
     queryInsights,
     capabilities: {
       fullTableSearch: true,

@@ -74,6 +74,8 @@ import { StreamDiagnosticsPopover } from "./StreamDiagnosticsPopover";
 import { StreamObserveSheet } from "./StreamObserveSheet";
 import { StreamRoutingKeySelector } from "./StreamRoutingKeySelector";
 import { useStreamEventSearch } from "./use-stream-event-search";
+import { WalHistoryAsk } from "./WalHistoryAsk";
+import { getWalColumnChanges, WalRowChanges } from "./WalRowChanges";
 
 const LOAD_MORE_THRESHOLD_PX = 160;
 const NEW_EVENTS_BATCH_SIZE = 50n;
@@ -549,6 +551,13 @@ function StreamEventRow(props: {
     searchQuery,
   } = props;
   const isExpanded = expandedEventId === event.id;
+  const walChanges = useMemo(
+    () =>
+      isExpanded && event.streamName === PRISMA_WAL_STREAM_NAME
+        ? getWalColumnChanges(event.body)
+        : null,
+    [event.body, event.streamName, isExpanded],
+  );
   const observe = useMemo(
     () =>
       isExpanded
@@ -671,6 +680,7 @@ function StreamEventRow(props: {
               ) : null}
             </div>
           ) : null}
+          {walChanges ? <WalRowChanges changes={walChanges} /> : null}
           <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-5 text-foreground">
             <HighlightedStreamEventJson
               searchConfig={searchConfig}
@@ -1850,6 +1860,18 @@ function ActiveStreamView(props: {
             <PrismaWalHistoryBanner
               rowKey={prismaWalHistorySummary.rowKey}
               tableName={prismaWalHistorySummary.tableName}
+            />
+          ) : null}
+          {selectedStream.name === PRISMA_WAL_STREAM_NAME ? (
+            <WalHistoryAsk
+              events={events}
+              scope={
+                prismaWalHistorySummary
+                  ? prismaWalHistorySummary.rowKey === null
+                    ? `table ${prismaWalHistorySummary.tableName}`
+                    : `row ${prismaWalHistorySummary.rowKey} of table ${prismaWalHistorySummary.tableName}`
+                  : null
+              }
             />
           ) : null}
           {isAggregationPanelOpen && aggregationRollups.length > 0 ? (

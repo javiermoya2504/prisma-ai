@@ -44,6 +44,7 @@ export function Navigation({ className }: NavigationProps) {
     useNavigation();
   const {
     databaseSwitcher,
+    hasActivity,
     hasDatabase,
     hasQueryInsights,
     isDarkMode,
@@ -537,6 +538,23 @@ export function Navigation({ className }: NavigationProps) {
                 Visualizer
               </a>
             </Navigation.Item>
+            {hasActivity && (
+              <Navigation.Item
+                asChild
+                isActive={viewParam === "activity"}
+                className={navigationItemClasses}
+              >
+                <a
+                  href={createUrl({
+                    schemaParam,
+                    viewParam: "activity",
+                  })}
+                  className="w-full"
+                >
+                  Activity
+                </a>
+              </Navigation.Item>
+            )}
             {hasQueryInsights && (
               <Navigation.Item
                 asChild

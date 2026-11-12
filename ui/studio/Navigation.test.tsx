@@ -56,6 +56,7 @@ interface StreamsMockValue {
 
 interface StudioMockValue {
   databaseSwitcher?: ReactNode;
+  hasActivity?: boolean;
   hasDatabase: boolean;
   isDarkMode: boolean;
   hasQueryInsights: boolean;
@@ -400,6 +401,38 @@ describe("Navigation", () => {
             Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
       }
+
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("shows the Activity item only when the adapter provides database activity", () => {
+    for (const hasActivity of [false, true]) {
+      useStudioMock.mockImplementation(() => ({
+        hasActivity,
+        hasDatabase: true,
+        hasQueryInsights: false,
+        isDarkMode,
+        navigationWidth: 192,
+        setNavigationWidth: setNavigationWidthMock,
+      }));
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+
+      act(() => {
+        root.render(<Navigation />);
+      });
+
+      const link = Array.from(container.querySelectorAll("a")).find(
+        (anchor) => anchor.textContent === "Activity",
+      );
+      expect(Boolean(link)).toBe(hasActivity);
+      if (link)
+        expect(link.getAttribute("href")).toContain("viewParam=activity");
 
       act(() => {
         root.unmount();

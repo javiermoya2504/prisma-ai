@@ -258,12 +258,16 @@ interface StudioContextValue {
   llm?: StudioLlm;
   aiSettings?: ReactNode;
   databaseSwitcher?: ReactNode;
+  isReadOnly: boolean;
   queryInsights?: Adapter["queryInsights"];
   streamsUrl?: string;
+  hasAiChangeHistory: boolean;
   hasAiFilter: boolean;
   hasAiQueryRecommendations: boolean;
   hasAiSql: boolean;
   hasQueryInsights: boolean;
+  activity?: Adapter["activity"];
+  hasActivity: boolean;
   requestLlm: (request: StudioLlmRequest) => Promise<string>;
   onEvent: (event: StudioEventBase) => void;
   operationEvents: StudioOperationEvent[];
@@ -306,6 +310,7 @@ export type StudioContextProviderProps = PropsWithChildren<{
   llm?: StudioLlm;
   aiSettings?: ReactNode;
   databaseSwitcher?: ReactNode;
+  readOnly?: boolean;
   onEvent?: (event: StudioEvent) => void;
   streamsUrl?: string;
   theme?: CustomTheme | string;
@@ -316,6 +321,7 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
     children,
     aiSettings,
     databaseSwitcher,
+    readOnly = false,
     onEvent: emitEvent,
     adapter,
     hasDatabase = true,
@@ -849,11 +855,14 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
     [llm],
   );
 
+  const hasAiChangeHistory = typeof llm === "function";
   const hasAiFilter = typeof llm === "function";
   const hasAiQueryRecommendations = typeof llm === "function";
   const hasAiSql = typeof llm === "function";
   const queryInsights = adapter.queryInsights;
   const hasQueryInsights = typeof queryInsights?.getSnapshot === "function";
+  const activity = adapter.activity;
+  const hasActivity = typeof activity?.getSnapshot === "function";
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -863,14 +872,18 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
           adapter,
           aiSettings,
           databaseSwitcher,
+          isReadOnly: readOnly,
           hasDatabase,
           llm,
           queryInsights,
           streamsUrl,
+          hasAiChangeHistory,
           hasAiFilter,
           hasAiQueryRecommendations,
           hasAiSql,
           hasQueryInsights,
+          activity,
+          hasActivity,
           requestLlm,
           onEvent,
           operationEvents,

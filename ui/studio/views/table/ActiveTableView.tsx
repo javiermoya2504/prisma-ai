@@ -1,6 +1,12 @@
 import { useIsMutating } from "@tanstack/react-query";
 import { type ColumnDef, type ColumnPinningState } from "@tanstack/react-table";
-import { ChevronDown, DatabaseZap, History, RefreshCw } from "lucide-react";
+import {
+  ChevronDown,
+  DatabaseZap,
+  History,
+  Lock,
+  RefreshCw,
+} from "lucide-react";
 import {
   type Dispatch,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -30,6 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../../components/ui/alert-dialog";
+import { Badge } from "../../../components/ui/badge";
 import { Button, type ButtonProps } from "../../../components/ui/button";
 import {
   DropdownMenu,
@@ -53,6 +60,7 @@ import { useColumnPinning } from "../../../hooks/use-column-pinning";
 import { useFiltering } from "../../../hooks/use-filtering";
 import { useIntrospection } from "../../../hooks/use-introspection";
 import { useIsInserting } from "../../../hooks/use-is-inserting";
+import { useLiveTableRefresh } from "../../../hooks/use-live-table-refresh";
 import { useNavigation } from "../../../hooks/use-navigation";
 import { usePagination } from "../../../hooks/use-pagination";
 import { useSelection } from "../../../hooks/use-selection";
@@ -138,7 +146,7 @@ const FOCUSED_CELL_REPEAT_DELAY_MS = 50;
 
 export function ActiveTableView(_props: ViewProps) {
   const isMutating = Boolean(useIsMutating());
-  const { adapter, hasAiFilter, requestLlm } = useStudio();
+  const { adapter, hasAiFilter, isReadOnly, requestLlm } = useStudio();
   const {
     metadata: { activeTable },
     createUrl,
@@ -583,9 +591,13 @@ export function ActiveTableView(_props: ViewProps) {
     }
   }, [hasSelectionExport, isSelectionExportOpen]);
 
-  const readonly = !Object.values(activeTable?.columns ?? {}).some(
-    (column) => column.pkPosition != null,
-  );
+  // Tables without a primary key cannot be edited safely; a read-only
+  // Studio (host-provided) disables editing everywhere.
+  const readonly =
+    isReadOnly ||
+    !Object.values(activeTable?.columns ?? {}).some(
+      (column) => column.pkPosition != null,
+    );
   const isInserting = useIsInserting();
   const insert = useActiveTableInsert(mutationQueryProps);
   const updateMany = useActiveTableUpdateMany(mutationQueryProps);
@@ -896,6 +908,13 @@ export function ActiveTableView(_props: ViewProps) {
     refetchIntrospection,
     resetKey: queryScopeKey,
   });
+  const liveTable = useLiveTableRefresh({
+    isBlocked: isMutating || hasStagedChanges || activeEditorCellKey != null,
+    refresh: refetchActiveTable,
+    table: activeTable
+      ? { name: activeTable.name, schema: activeTable.schema }
+      : undefined,
+  });
   // A table refresh re-introspects the schema before refetching rows, so the
   // busy state must cover both awaits — not just the rows collection fetch.
   const isRefreshingTable = isFetching || isIntrospectionRefetching;
@@ -988,7 +1007,7 @@ export function ActiveTableView(_props: ViewProps) {
         canGoToPreviousPage,
         hasAiFilter,
         hasStagedChanges,
-        isInsertingDisabled: isInserting > 0,
+        isInsertingDisabled: isReadOnly || isInserting > 0,
         onDiscardStagedChanges: () => setDiscardDialogOpen(true),
         onFocusFilterWithAi: focusAiPaletteFilter,
         onFocusSearch: rowSearch.openRowSearch,
@@ -1600,6 +1619,35 @@ export function ActiveTableView(_props: ViewProps) {
         }
         endContent={
           <>
+            {liveTable.isLive ? (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      data-testid="table-live-badge"
+                      variant="outline"
+                      className="gap-1.5 font-normal"
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "size-1.5 rounded-full",
+                          liveTable.hasPendingChanges
+                            ? "bg-amber-500"
+                            : "bg-emerald-500",
+                        )}
+                      />
+                      Live
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="end">
+                    {liveTable.hasPendingChanges
+                      ? "This table changed. It reloads when you finish editing."
+                      : "Reloads by itself when this table changes in the database."}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
             {tableHistoryUrl ? (
               <Button
                 aria-label={tableHistoryAriaLabel ?? "Open table history"}
@@ -1670,14 +1718,25 @@ export function ActiveTableView(_props: ViewProps) {
           table={activeTable}
           totalEditingFilters={totalEditingFilters}
         />
-        <Button
-          variant="outline"
-          className="h-9 px-5"
-          onClick={newStagedRow}
-          disabled={isInserting > 0}
-        >
-          Insert row
-        </Button>
+        {isReadOnly ? (
+          <Badge
+            variant="outline"
+            className="h-9 gap-1.5 px-3 font-sans font-normal text-muted-foreground"
+            title="This connection is read-only"
+          >
+            <Lock className="size-3.5" />
+            Read-only
+          </Badge>
+        ) : (
+          <Button
+            variant="outline"
+            className="h-9 px-5"
+            onClick={newStagedRow}
+            disabled={isInserting > 0}
+          >
+            Insert row
+          </Button>
+        )}
         {hasSelectionExport && (
           <DropdownMenu
             open={isSelectionExportOpen}
@@ -1777,7 +1836,7 @@ export function ActiveTableView(_props: ViewProps) {
             </Button>
           </>
         )}
-        {isSelecting && selectedRowCount > 0 && (
+        {isSelecting && selectedRowCount > 0 && !isReadOnly && (
           <Button
             variant="secondary"
             size="sm"

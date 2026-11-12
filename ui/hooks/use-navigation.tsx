@@ -112,6 +112,7 @@ function buildNavigationTableNames(introspection: AdapterIntrospectResult) {
 function useNavigationInternal() {
   const {
     adapter,
+    hasActivity,
     hasDatabase,
     hasQueryInsights,
     navigationTableNamesCollection,
@@ -226,7 +227,8 @@ function useNavigationInternal() {
   const resolvedViewParam =
     !hasDatabase && typeof streamsUrl === "string"
       ? "stream"
-      : viewParam === "queries" && !hasQueryInsights
+      : (viewParam === "queries" && !hasQueryInsights) ||
+          (viewParam === "activity" && !hasActivity)
         ? defaults.view
         : viewParam;
 

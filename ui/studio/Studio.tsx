@@ -13,6 +13,7 @@ import { StudioContextProvider, useStudio } from "./context";
 import { IntrospectionStatusNotice } from "./IntrospectionStatusNotice";
 import { Navigation } from "./Navigation";
 import { StudioHeader } from "./StudioHeader";
+import { ActivityView } from "./views/activity/ActivityView";
 import { ConsoleView } from "./views/console/ConsoleView";
 import { MigrationsView } from "./views/migrations/MigrationsView";
 import { QueriesView } from "./views/queries/QueriesView";
@@ -76,6 +77,12 @@ export interface StudioProps {
    * switch databases from inside Studio.
    */
   databaseSwitcher?: ReactNode;
+  /**
+   * Hides and disables every data-editing affordance (cell editing, paste,
+   * Insert row, delete). Hosts should also enforce read-only access in the
+   * database connection; this only shapes the UI.
+   */
+  readOnly?: boolean;
   onEvent?: (error: StudioEvent) => void;
   streamsUrl?: string;
   /**
@@ -94,6 +101,7 @@ export function Studio(props: StudioProps) {
     aiSettings,
     databaseSwitcher,
     hasDatabase = true,
+    readOnly = false,
     llm,
     onEvent,
     streamsUrl,
@@ -110,6 +118,7 @@ export function Studio(props: StudioProps) {
       adapter={adapter}
       aiSettings={aiSettings}
       databaseSwitcher={databaseSwitcher}
+      readOnly={readOnly}
       hasDatabase={hasDatabase}
       llm={llm}
       onEvent={onEvent}
@@ -125,6 +134,7 @@ const views: Record<string, (props: ViewProps) => JSX.Element | null> = {
   schema: SchemaView,
   table: ActiveTableView,
   queries: QueriesView,
+  activity: ActivityView,
   stream: StreamView,
   console: ConsoleView,
   sql: SqlView,

@@ -349,6 +349,11 @@ vi.mock("./use-stream-event-search", () => ({
   useStreamEventSearch: useStreamEventSearchMock,
 }));
 
+// Covered by WalHistoryAsk.test.tsx; it needs the Studio context.
+vi.mock("./WalHistoryAsk", () => ({
+  WalHistoryAsk: () => null,
+}));
+
 vi.mock("./StreamRoutingKeySelector", () => ({
   StreamRoutingKeySelector: (props: {
     selectedRoutingKey: string | null;

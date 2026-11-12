@@ -255,6 +255,8 @@ Summary derivation rules:
 - when the active stream profile is `evlog`, preview SHOULD render a compact request summary from request-like fields before falling back to JSON, using `METHOD path` for successful info-level web requests and adding non-success status plus warning/error message context when present
 - when the active stream profile is `otel-traces`, preview SHOULD render a compact span summary from OTEL span fields before falling back to JSON, preferring HTTP semantic attributes for request spans and including service, duration, and error status when available
 - expanded content SHOULD pretty-print structured JSON payloads
+- for `prisma-wal` update records that carry an object `old_value`, the expanded row SHOULD render a Column / Before / After table (`WalRowChanges`, derived by `getWalColumnChanges`) with only the changed columns above the JSON
+- when the active stream is `prisma-wal` and the host provides `llm`, the view MAY render `WalHistoryAsk` under the header: it sends the question, the current WAL scope, and the already-loaded events (newest first, capped by `WAL_HISTORY_AI_MAX_EVENTS` and `WAL_HISTORY_AI_MAX_CHARS`, see `wal-history-ai.ts`) to `llm` with task `change-history`, and MUST NOT fetch additional events for it
 - when stream search is active and a row is expanded, the pretty-printed expanded content SHOULD highlight matching fields and values using the same yellow search treatment used by table search
 - unfielded search clauses SHOULD highlight only the matched value text for the configured default fields, not the names of every default field that participated in matching
 - wildcard text clauses such as `tieredstore.ingest.queue.*` SHOULD highlight the matched prefix inside the expanded JSON value

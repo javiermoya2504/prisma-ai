@@ -760,5 +760,53 @@ describe("bff/bff-client", () => {
         ]);
       });
     });
+
+    describe("activity", () => {
+      const fetchFn = vi.fn((...args: Parameters<typeof fetch>) =>
+        fetch(...args),
+      );
+
+      it("is only exposed when the BFF opts in", () => {
+        expect(
+          createStudioBFFClient({ fetch: fetchFn, url }).activity,
+        ).toBeUndefined();
+      });
+
+      it("reads snapshots and cancels statements through the BFF channel", async () => {
+        const client = createStudioBFFClient({
+          activity: true,
+          fetch: fetchFn,
+          url,
+        });
+        const snapshot = {
+          canCancel: true,
+          generatedAt: 1,
+          sessions: [],
+        };
+        fetchFn.mockResolvedValueOnce(
+          new Response(JSON.stringify([null, snapshot])),
+        );
+        fetchFn.mockResolvedValueOnce(
+          new Response(JSON.stringify([null, { cancelled: true }])),
+        );
+
+        expect(await client.activity!.getSnapshot()).toStrictEqual([
+          null,
+          snapshot,
+        ]);
+        expect(await client.activity!.cancel("4242")).toStrictEqual([
+          null,
+          { cancelled: true },
+        ]);
+        expect(
+          fetchFn.mock.calls.map(
+            ([, init]) => JSON.parse(String(init?.body)) as unknown,
+          ),
+        ).toEqual([
+          { procedure: "activity" },
+          { procedure: "activity-cancel", sessionId: "4242" },
+        ]);
+      });
+    });
   });
 });

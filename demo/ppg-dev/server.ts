@@ -31,6 +31,7 @@ import {
   parseDemoRuntimeOptions,
 } from "./runtime-options";
 import { registerDemoShutdownHandlers } from "./shutdown";
+import { proxyStreamsRequest } from "./streams-proxy";
 import { lintPostgresSql } from "./sql-lint";
 import {
   addDemoStartupFailureHint,
@@ -275,6 +276,7 @@ async function main(): Promise<void> {
   });
   connectionsService = service;
   cleanupCallbacks.push(() => service.closeAll());
+  void service.resumeStreamFeatures();
   console.info(`[demo] saved connections file: ${connectionsFile}`);
 
   if (prebuiltAssets) {
@@ -677,59 +679,11 @@ async function handleStreamsProxyRequest(
   request: Request,
   url: URL,
 ): Promise<Response> {
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        Allow: "GET,HEAD,POST,OPTIONS",
-      },
-      status: 204,
-    });
-  }
-
-  if (
-    request.method !== "GET" &&
-    request.method !== "HEAD" &&
-    request.method !== "POST"
-  ) {
-    return new Response("Method Not Allowed", {
-      headers: {
-        Allow: "GET,HEAD,POST,OPTIONS",
-      },
-      status: 405,
-    });
-  }
-
-  if (!streamsServerUrl) {
-    return new Response("Streams server is not ready", { status: 503 });
-  }
-
-  const proxyPathname = url.pathname.slice(STREAMS_PROXY_BASE_PATH.length);
-  const normalizedPathname = proxyPathname.length > 0 ? proxyPathname : "/";
-  const upstreamUrl = new URL(
-    `${normalizedPathname}${url.search}`,
-    `${streamsServerUrl.replace(/\/+$/, "")}/`,
-  );
-  const headers = new Headers(request.headers);
-  const body =
-    request.method === "POST" ? await request.arrayBuffer() : undefined;
-
-  headers.delete("host");
-
-  const response = await fetch(upstreamUrl, {
-    body,
-    headers,
-    method: request.method,
-    redirect: "manual",
-    signal: request.signal,
-  });
-  const responseHeaders = new Headers(response.headers);
-
-  responseHeaders.set("Cache-Control", "no-cache, no-store, must-revalidate");
-
-  return new Response(response.body, {
-    headers: responseHeaders,
-    status: response.status,
-    statusText: response.statusText,
+  return await proxyStreamsRequest({
+    basePath: STREAMS_PROXY_BASE_PATH,
+    request,
+    upstreamBaseUrl: streamsServerUrl,
+    url,
   });
 }
 

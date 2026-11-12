@@ -9,6 +9,10 @@ const DEMO_CONNECTION: PublicConnection = {
   displayUrl: "Built-in sample PostgreSQL (resets on restart)",
   id: DEMO_CONNECTION_ID,
   kind: "postgres",
+  liveHistory: false,
+  readOnly: false,
+  queryInsights: false,
+  serverLogs: false,
   name: "Sample data",
   source: "demo",
 };

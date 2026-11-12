@@ -108,6 +108,7 @@ const applyEditingFilterSpy = vi.fn();
 const llmMock = vi.fn<(request: StudioLlmRequest) => Promise<string>>();
 let studioLlm: ((request: StudioLlmRequest) => Promise<string>) | undefined;
 let studioSupportsFullTableSearch = false;
+let studioIsReadOnly = false;
 let navigationSearchParam = "";
 const setPageIndexParamMock = vi.fn(() =>
   Promise.resolve(new URLSearchParams()),
@@ -168,6 +169,7 @@ vi.mock("../../context", () => ({
       sqlLint: studioSqlLint,
     },
     hasAiFilter: typeof studioLlm === "function",
+    isReadOnly: studioIsReadOnly,
     requestLlm: async (request: { prompt: string; task: string }) => {
       if (request.task === "table-filter" && typeof studioLlm === "function") {
         return await studioLlm(request as StudioLlmRequest);
@@ -890,9 +892,7 @@ function renderView() {
 
 function getFocusedCellState() {
   return localUiStateStore.get("datagrid:public.users:focused-cell") as
-    | { columnId: string; rowIndex: number }
-    | null
-    | undefined;
+    { columnId: string; rowIndex: number } | null | undefined;
 }
 
 beforeEach(() => {
@@ -1008,6 +1008,7 @@ beforeEach(() => {
     return 0;
   }) as typeof requestAnimationFrame;
   studioSupportsFullTableSearch = false;
+  studioIsReadOnly = false;
   studioSqlLint = undefined;
   localUiStateStore = new Map<string, unknown>();
   gridSelectionState = {
@@ -1433,8 +1434,7 @@ describe("ActiveTableView filtering", () => {
       );
 
       const filter = JSON.parse(createUrlArgs?.filterParam ?? "{}") as
-        | FilterGroup
-        | Record<string, unknown>;
+        FilterGroup | Record<string, unknown>;
 
       expect(filter).toMatchObject({
         after: "and",
@@ -1885,6 +1885,56 @@ describe("ActiveTableView filtering", () => {
     });
 
     view.cleanup();
+  });
+
+  it("hides Insert row and keeps cells non-editable when Studio is read-only", async () => {
+    studioIsReadOnly = true;
+    useActiveTableQueryMock.mockReturnValue({
+      data: {
+        filteredRowCount: 1,
+        rows: [
+          {
+            __ps_rowid: "row-1",
+            created_at: "2026-03-11T00:00:00.000Z",
+            email: "alice@example.com",
+            id: "user_1",
+          },
+        ],
+      },
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+
+    const view = renderView();
+
+    try {
+      expect(findButtonByText("Insert row")).toBeUndefined();
+      expect(document.body.textContent).toContain("Read-only");
+
+      act(() => {
+        view.getGridCell("email", 0).dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          }),
+        );
+      });
+      await flush();
+
+      const editorInput = document.body.querySelector(
+        "input.cell-input-leading, input.cell-input-base, textarea.cell-input-base",
+      );
+      if (editorInput) {
+        expect(
+          (editorInput as HTMLInputElement | HTMLTextAreaElement).disabled ||
+            (editorInput as HTMLInputElement | HTMLTextAreaElement).readOnly,
+        ).toBe(true);
+      }
+      expect(findButtonByText("Save 1 row")).toBeUndefined();
+    } finally {
+      view.cleanup();
+    }
   });
 
   it("stages persisted cell edits, keeps only cancel inside the editor, and keeps the focused staged hover tint visible", async () => {
@@ -3057,8 +3107,7 @@ describe("ActiveTableView filtering", () => {
       expect(
         (
           updateManyMutateMock.mock.calls[0]?.[1] as
-            | { onSuccess?: unknown }
-            | undefined
+            { onSuccess?: unknown } | undefined
         )?.onSuccess,
       ).toBeTypeOf("function");
       expect(queryConfirmationDialog()).toBeNull();

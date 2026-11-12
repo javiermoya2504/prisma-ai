@@ -49,7 +49,8 @@ export type PostgresAdapterRequirements = AdapterRequirements;
 export function createPostgresAdapter(
   requirements: PostgresAdapterRequirements,
 ): Adapter {
-  const { executor, queryInsights, ...otherRequirements } = requirements;
+  const { activity, executor, queryInsights, ...otherRequirements } =
+    requirements;
   const fullTableSearchState = createFullTableSearchExecutionState();
   let canUseExecutorLintTransport = typeof executor.lintSql === "function";
   const createPostgresAdapterError = (
@@ -155,6 +156,7 @@ export function createPostgresAdapter(
 
   return {
     defaultSchema: "public",
+    activity,
     queryInsights,
     capabilities: {
       fullTableSearch: true,

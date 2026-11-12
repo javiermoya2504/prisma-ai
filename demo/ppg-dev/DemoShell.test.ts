@@ -21,12 +21,17 @@ vi.mock("../../ui", () => ({
 }));
 
 import type { ConnectionsApi } from "./connections/client-api";
-import { DemoApp } from "./DemoShell";
+import type { PublicConnection } from "./connections/settings";
+import { DemoApp, useConnectionAdapter } from "./DemoShell";
 
 const demoConnection = {
   displayUrl: "Local Prisma Postgres",
   id: "demo",
   kind: "postgres",
+  liveHistory: false,
+  readOnly: false,
+  queryInsights: false,
+  serverLogs: false,
   name: "Demo database",
   source: "demo",
 } as const;
@@ -38,6 +43,16 @@ function createConnectionsApiStub(
     detect: vi.fn().mockResolvedValue([]),
     list: vi.fn().mockResolvedValue(connections),
     remove: vi.fn(),
+    setLiveHistory: vi.fn(),
+    setQueryInsights: vi.fn(),
+    setServerLogs: vi.fn(),
+    update: vi.fn(),
+    listBackups: vi.fn(),
+    createBackup: vi.fn(),
+    restoreBackup: vi.fn(),
+    listReplicaIdentities: vi.fn(),
+    removeBackup: vi.fn(),
+    setReplicaIdentity: vi.fn(),
     save: vi.fn(),
     test: vi.fn(),
   };
@@ -199,6 +214,10 @@ describe("DemoApp", () => {
       displayUrl: "/data/school.db",
       id: "saved-1",
       kind: "sqlite",
+      liveHistory: false,
+      readOnly: false,
+      queryInsights: false,
+      serverLogs: false,
       name: "school.db",
       source: "saved",
     } as const;
@@ -237,5 +256,97 @@ describe("DemoApp", () => {
     });
     container.remove();
     localStorage.removeItem("studio-demo:active-connection");
+  });
+
+  it("gives a saved PostgreSQL database its own Streams once live history is on", async () => {
+    localStorage.setItem("studio-demo:active-connection", "grades");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        createElement(DemoApp, {
+          aiEnabled: false,
+          connectionsApi: createConnectionsApiStub([
+            demoConnection,
+            {
+              displayUrl: "postgresql://me@localhost:5432/grades_ai",
+              id: "grades",
+              kind: "postgres",
+              liveHistory: true,
+              readOnly: false,
+              queryInsights: false,
+              serverLogs: false,
+              name: "grades_ai",
+              source: "saved",
+            },
+          ]),
+          createAdapter: () => ({}) as Adapter,
+          demoDatabase: true,
+          streamsUrl: "/api/streams",
+        }),
+      );
+    });
+    await flushConnections();
+
+    expect(studioMock.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        streamsUrl: "/api/connections/grades/streams",
+      }),
+    );
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    localStorage.removeItem("studio-demo:active-connection");
+  });
+});
+
+describe("useConnectionAdapter", () => {
+  it("rebuilds the adapter when query insights are turned on for the open connection", () => {
+    const grades = {
+      displayUrl: "postgresql://me@localhost:5432/grades_ai",
+      id: "grades",
+      kind: "postgres",
+      liveHistory: false,
+      name: "grades_ai",
+      queryInsights: false,
+      readOnly: false,
+      serverLogs: false,
+      source: "saved",
+    } as const;
+    const createAdapter = vi.fn(() => ({}) as Adapter);
+    const seen: Adapter[] = [];
+
+    function Harness(props: { connection: PublicConnection }) {
+      seen.push(useConnectionAdapter(props.connection, createAdapter));
+      return null;
+    }
+
+    const root = createRoot(document.createElement("div"));
+    act(() => root.render(createElement(Harness, { connection: grades })));
+    act(() =>
+      root.render(
+        createElement(Harness, {
+          connection: { ...grades, liveHistory: true },
+        }),
+      ),
+    );
+    expect(createAdapter).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      root.render(
+        createElement(Harness, {
+          connection: { ...grades, queryInsights: true },
+        }),
+      ),
+    );
+    expect(createAdapter).toHaveBeenCalledTimes(2);
+    expect(createAdapter).toHaveBeenLastCalledWith(
+      expect.objectContaining({ queryInsights: true }),
+    );
+    act(() => root.unmount());
   });
 });

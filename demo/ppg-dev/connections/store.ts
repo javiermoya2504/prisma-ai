@@ -17,6 +17,10 @@ export interface ConnectionStore {
   get(id: string): Promise<StoredConnection | undefined>;
   add(connection: Omit<StoredConnection, "id">): Promise<StoredConnection>;
   remove(id: string): Promise<boolean>;
+  update(
+    id: string,
+    patch: Partial<Omit<StoredConnection, "id">>,
+  ): Promise<StoredConnection | undefined>;
 }
 
 function isStoredConnection(value: unknown): value is StoredConnection {
@@ -92,6 +96,18 @@ export function createConnectionStore(file: string): ConnectionStore {
         const saved = { ...connection, id: randomUUID() };
         await write([...connections, saved]);
         return saved;
+      }),
+    update: (id, patch) =>
+      serialize(async () => {
+        const connections = await read();
+        const index = connections.findIndex((item) => item.id === id);
+
+        if (index === -1) return undefined;
+
+        const updated = { ...connections[index]!, ...patch, id };
+        connections[index] = updated;
+        await write(connections);
+        return updated;
       }),
     remove: (id) =>
       serialize(async () => {

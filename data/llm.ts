@@ -5,6 +5,7 @@ export const STUDIO_LLM_TASKS = [
   "query-insights",
   "sql-generation",
   "sql-visualization",
+  "change-history",
 ] as const;
 
 export type StudioLlmTask = (typeof STUDIO_LLM_TASKS)[number];
@@ -35,8 +36,7 @@ export interface StudioLlmErrorResponse {
 }
 
 export type StudioLlmResponse =
-  | StudioLlmSuccessResponse
-  | StudioLlmErrorResponse;
+  StudioLlmSuccessResponse | StudioLlmErrorResponse;
 
 export type StudioLlm = (
   request: StudioLlmRequest,

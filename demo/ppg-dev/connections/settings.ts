@@ -22,6 +22,13 @@ export interface StoredConnection {
   kind: DatabaseKind;
   /** Connection URL for Postgres/MySQL, absolute file path for SQLite. */
   url: string;
+  /** Postgres only: stream committed changes into `prisma-wal`. */
+  liveHistory?: boolean;
+  /** Opens the database in read-only sessions and hides editing in Studio. */
+  readOnly?: boolean;
+  /** Postgres only: feed Studio's Queries view from pg_stat_statements. */
+  queryInsights?: boolean; /** Postgres on this machine only: follow the server log into a stream. */
+  serverLogs?: boolean;
 }
 
 /** What the browser sees: never contains a password. */
@@ -32,6 +39,12 @@ export interface PublicConnection {
   /** URL with the password masked, or the SQLite file path. */
   displayUrl: string;
   source: "demo" | "saved";
+  /** Live change history (`prisma-wal`) is running for this connection. */
+  liveHistory: boolean;
+  readOnly: boolean;
+  queryInsights: boolean;
+  /** The server log is being streamed into `postgres-logs`. */
+  serverLogs: boolean;
 }
 
 /** Fields the "Add connection" form sends. */
@@ -187,6 +200,10 @@ export function toPublicConnection(
     displayUrl: maskConnectionUrl(connection.kind, connection.url),
     id: connection.id,
     kind: connection.kind,
+    liveHistory: connection.liveHistory === true,
+    readOnly: connection.readOnly === true,
+    queryInsights: connection.queryInsights === true,
+    serverLogs: connection.serverLogs === true,
     name: connection.name,
     source: "saved",
   };

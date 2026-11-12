@@ -108,7 +108,7 @@ function normalizeLimit(limit: number | undefined): number {
   return DEFAULT_DEMO_QUERY_INSIGHTS_LIMIT;
 }
 
-function shouldRecordQuery(sql: string): boolean {
+export function shouldRecordQuery(sql: string): boolean {
   const normalizedSql = sql.trim().toLowerCase();
 
   if (normalizedSql.length === 0) {
@@ -129,7 +129,7 @@ function normalizeQueryId(sql: string): string {
   return sql.replace(/\s+/g, " ").trim();
 }
 
-function extractTablesFromSql(sql: string): string[] {
+export function extractTablesFromSql(sql: string): string[] {
   const tables = new Set<string>();
   const cteNames = extractCteNamesFromSql(sql);
 

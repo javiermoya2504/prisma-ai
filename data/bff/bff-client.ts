@@ -1,4 +1,8 @@
 import type { AdapterSqlLintDiagnostic } from "../adapter";
+import type {
+  StudioDatabaseActivity,
+  StudioDatabaseActivitySnapshot,
+} from "../database-activity";
 import type { ExecuteOptions, SequenceExecutor } from "../executor";
 import type { Query, QueryResult } from "../query";
 import type {
@@ -200,6 +204,13 @@ export interface StudioBFFClientProps {
   queryInsights?: boolean;
 
   /**
+   * Enables the database activity bridge (`procedure: "activity"` and
+   * `"activity-cancel"`). Leave it off when the BFF does not implement them
+   * so Studio hides the Activity view.
+   */
+  activity?: boolean;
+
+  /**
    * Function used to deserialize the results of queries.
    *
    * By default, the results are returned as is without any additional processing.
@@ -268,6 +279,9 @@ export interface StudioBFFClient extends SequenceExecutor {
    * adapter so Studio hides the Queries view.
    */
   queryInsights?: StudioQueryInsights;
+
+  /** Optional database activity bridge; see `StudioBFFClientProps.activity`. */
+  activity?: StudioDatabaseActivity;
 }
 
 export type StudioBFFRequest =
@@ -275,7 +289,20 @@ export type StudioBFFRequest =
   | StudioBFFSequenceRequest
   | StudioBFFTransactionRequest
   | StudioBFFSqlLintRequest
-  | StudioBFFQueryInsightsRequest;
+  | StudioBFFQueryInsightsRequest
+  | StudioBFFActivityRequest
+  | StudioBFFActivityCancelRequest;
+
+export interface StudioBFFActivityRequest {
+  customPayload?: Record<string, unknown>;
+  procedure: "activity";
+}
+
+export interface StudioBFFActivityCancelRequest {
+  customPayload?: Record<string, unknown>;
+  procedure: "activity-cancel";
+  sessionId: string;
+}
 
 export interface StudioBFFQueryRequest {
   customPayload?: Record<string, unknown>;
@@ -615,6 +642,51 @@ export function createStudioBFFClient(
           return [error as Error];
         }
       },
+    };
+  }
+
+  if (props.activity === true) {
+    const callProcedure = async <T>(
+      body: StudioBFFActivityRequest | StudioBFFActivityCancelRequest,
+      options?: ExecuteOptions,
+    ): Promise<Either<Error, T>> => {
+      try {
+        const response = await fetchFn(url, {
+          body: JSON.stringify({ ...body, customPayload }),
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...customHeaders,
+          },
+          method: "POST",
+          signal: options?.abortSignal,
+        });
+
+        if (!response.ok) {
+          return [
+            new Error(await response.text().catch(() => "unknown error")),
+          ];
+        }
+
+        const [error, result] = (await response.json()) as [SerializedError, T];
+
+        return error ? [deserializeError(error)] : [null, result];
+      } catch (error: unknown) {
+        return [error as Error];
+      }
+    };
+
+    client.activity = {
+      getSnapshot: (options) =>
+        callProcedure<StudioDatabaseActivitySnapshot>(
+          { procedure: "activity" },
+          options,
+        ),
+      cancel: (sessionId, options) =>
+        callProcedure<{ cancelled: boolean }>(
+          { procedure: "activity-cancel", sessionId },
+          options,
+        ),
     };
   }
 

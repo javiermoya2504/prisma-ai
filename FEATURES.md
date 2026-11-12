@@ -31,6 +31,50 @@ The local app is not limited to its sample database: a "Database" selector at th
 Local databases are found automatically (Postgres/MySQL on their default local ports, SQLite files in your project folders, and `DATABASE_URL`) and connect with one click; others are added with host, user, and password, a connection URL, or a SQLite file path, and are tested before they are saved.
 Saved credentials stay on the demo server in an owner-only file (`~/.prisma-studio-ai/connections.json`, override with `STUDIO_CONNECTIONS_FILE`) and are never sent to the browser; connection management only answers requests from the same machine.
 
+## Database Activity
+
+The Activity view shows who is connected to the open database and what each connection is running right now, how long it has been running, and what it is waiting on. It refreshes live and can be paused.
+A runaway statement can be cancelled from the list after a confirmation (not on read-only connections). Studio's own sessions are labeled so they are easy to tell apart. It is available for saved PostgreSQL connections.
+
+## Slow Query Insights For Your Own PostgreSQL
+
+Turning on "Query insights" for a saved PostgreSQL connection fills Studio's Queries view (including its AI recommendations) from `pg_stat_statements`, so you can find the slowest and most frequent queries your apps run.
+If the server does not preload the library yet, Studio explains the one-time setup. The extension is created in a separate `studio_monitoring` schema so it never clutters your tables, and Studio's own monitoring queries are left out.
+
+## PostgreSQL Server Logs As A Stream
+
+"Server logs" follows the log of a PostgreSQL server running on this computer (Homebrew or logging collector) and turns new lines into searchable `postgres-logs` stream events with level, process id, and attached details or statements, for example to spot errors your app triggers.
+
+## Read-Only Connections
+
+Any saved connection can be marked read-only, which is useful when you connect a production database and want to look without risking an accidental edit.
+The database session itself is read-only (PostgreSQL, MySQL, and SQLite each enforce it), and Studio hides Insert row, cell editing, paste, and row deletion and shows a "Read-only" badge on tables.
+
+## One-Click Backups
+
+Each saved connection has a Backups panel that takes a snapshot with one click: `pg_dump` for PostgreSQL, `mysqldump` for MySQL, or a consistent file copy for SQLite. Snapshots are stored on your machine.
+Restoring never overwrites anything. It creates a new database next to the original (for example `grades_ai_restore_20261111_223005`), adds it as a connection, and opens it, so you can inspect or recover data safely.
+
+## Live Change History For Your Own PostgreSQL
+
+Any saved PostgreSQL connection can turn on "Live history" to see every insert, update, and delete as it happens, from any app or script, in a `prisma-wal` stream. That includes Studio's per-table and per-row history buttons, the same as with the sample database.
+It needs `wal_level = logical` (Studio explains the one-time setup when it is missing), only publishes tables with a primary key so writes elsewhere keep working, and uses a temporary replication slot that disappears when Studio stops, so the database never accumulates WAL because of it. Turning it off removes everything it created.
+
+## Tables That Stay In Sync With The Database
+
+When the database's change history (`prisma-wal`) is available, the open table shows a "Live" badge and reloads by itself whenever its rows change, whether the change came from Studio, another app, or a script. Only changes to that table trigger a reload.
+While a cell editor is open, staged changes are pending, or a save is running, the reload waits (the badge turns amber) and happens as soon as the edit is finished, so nothing you are typing is lost.
+
+## Before And After Values In Change History
+
+Expanding an update in the `prisma-wal` stream shows a Column / Before / After table with only the values that changed, above the raw JSON.
+PostgreSQL only records previous values for tables with `REPLICA IDENTITY FULL`, so saved PostgreSQL connections offer "Previous values for updates…" next to Live history: a per-table switch that applies or removes it (each table opts in on its own, since it makes updates write more WAL).
+
+## Ask AI About Change History
+
+With an AI provider configured, the `prisma-wal` stream view has an "Ask AI" field for questions like "what changed in students today?" or "who set this grade to 10?".
+Studio sends only the most recent changes already loaded in the view (capped in count and size), plus the table or row being looked at, and the answer cites the tables, row keys, and times it relied on. It says so when the loaded changes don't contain the answer.
+
 ## Streams-Only Studio Shell
 
 Studio can run without a database connection when a Streams server is configured, which makes it usable as a focused event-log and stream-search tool.

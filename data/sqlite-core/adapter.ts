@@ -53,7 +53,8 @@ const filterOperators = [
 export function createSQLiteAdapter(
   requirements: SQLIteAdapterRequirements,
 ): Adapter {
-  const { executor, queryInsights, ...otherRequirements } = requirements;
+  const { activity, executor, queryInsights, ...otherRequirements } =
+    requirements;
   const fullTableSearchState = createFullTableSearchExecutionState();
   let canUseExecutorLintTransport = typeof executor.lintSql === "function";
   const createSQLiteAdapterError = (
@@ -150,6 +151,7 @@ export function createSQLiteAdapter(
 
   return {
     defaultSchema: schema,
+    activity,
     queryInsights,
     capabilities: {
       fullTableSearch: true,

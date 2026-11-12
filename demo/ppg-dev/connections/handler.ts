@@ -1,4 +1,7 @@
 import { serializeError, type StudioBFFRequest } from "../../../data/bff";
+import type { Executor } from "../../../data/executor";
+import { proxyStreamsRequest } from "../streams-proxy";
+import { type BackupService, createBackupService } from "./backups";
 import {
   type DetectionResult,
   detectLocalDatabases,
@@ -10,6 +13,13 @@ import {
   openDatabaseConnection,
   testDatabaseConnection,
 } from "./drivers";
+import { dropPublication, startLiveHistory } from "./live-history";
+import { cancelPostgresQuery, getPostgresActivity } from "./pg-activity";
+import {
+  createPgStatStatementsInsights,
+  prepareQueryInsights,
+} from "./pg-stat-statements";
+import { findPostgresLogFile, startServerLogs } from "./postgres-logs";
 import {
   buildConnectionUrl,
   defaultConnectionName,
@@ -17,11 +27,28 @@ import {
   parseConnectionInput,
   type PublicConnection,
   redactSecrets,
+  type StoredConnection,
   toPublicConnection,
 } from "./settings";
+import { listReplicaIdentities, setReplicaIdentity } from "./replica-identity";
+import { SetupError } from "./setup-error";
 import type { ConnectionStore } from "./store";
+import { createStreamsHub, type StreamsHub } from "./streams-hub";
 
 export const CONNECTIONS_PATH = "/api/connections";
+
+/** Per-connection features that write into the connection's Streams server. */
+const STREAM_FEATURES = ["liveHistory", "serverLogs"] as const;
+type StreamFeature = (typeof STREAM_FEATURES)[number];
+const FEATURE_LABELS: Record<StreamFeature, string> = {
+  liveHistory: "Live history",
+  serverLogs: "Server logs",
+};
+
+interface FeatureSession {
+  tableCount?: number;
+  stop(): Promise<void>;
+}
 
 const LOOPBACK_ADDRESSES = new Set([
   "127.0.0.1",
@@ -59,7 +86,50 @@ export function createConnectionsService(options: {
   demo: { available: boolean; url?: string | null };
   open?: OpenConnectionFn;
   detect?: (excludeUrls: string[]) => Promise<DetectionResult[]>;
+  liveHistory?: {
+    start: typeof startLiveHistory;
+    dropPublication: typeof dropPublication;
+  };
+  serverLogs?: {
+    start: (args: {
+      connection: StoredConnection;
+      executor: Executor;
+      streamsServerUrl: string;
+    }) => Promise<FeatureSession>;
+  };
+  streamsHub?: StreamsHub;
+  backups?: BackupService;
 }) {
+  const backups = options.backups ?? createBackupService();
+  const liveHistory = options.liveHistory ?? {
+    dropPublication,
+    start: startLiveHistory,
+  };
+  const serverLogs = options.serverLogs ?? {
+    start: async ({ connection, executor, streamsServerUrl }) =>
+      await startServerLogs({
+        logFile: await findPostgresLogFile(executor, connection.url),
+        streamsServerUrl,
+      }),
+  };
+  const hub = options.streamsHub ?? createStreamsHub();
+  const featureSessions = new Map<string, FeatureSession>();
+  const startingFeatures = new Map<string, Promise<FeatureSession>>();
+  const featureKey = (feature: StreamFeature, id: string) => `${feature}:${id}`;
+  const isRunning = (feature: StreamFeature, id: string) =>
+    featureSessions.has(featureKey(feature, id));
+  const insightsProviders = new Map<
+    string,
+    ReturnType<typeof createPgStatStatementsInsights>
+  >();
+  const insightsFor = (id: string) => {
+    let provider = insightsProviders.get(id);
+    if (!provider) {
+      provider = createPgStatStatementsInsights();
+      insightsProviders.set(id, provider);
+    }
+    return provider;
+  };
   const open = options.open ?? openDatabaseConnection;
   const pool = createConnectionPool(open);
   const detect =
@@ -68,7 +138,7 @@ export function createConnectionsService(options: {
   let lastDetection = new Map<string, DetectionResult>();
 
   async function listPublic(): Promise<PublicConnection[]> {
-    const saved = (await options.store.list()).map(toPublicConnection);
+    const saved = (await options.store.list()).map(publicOf);
 
     return options.demo.available
       ? [
@@ -76,6 +146,10 @@ export function createConnectionsService(options: {
             displayUrl: "Built-in sample PostgreSQL (resets on restart)",
             id: DEMO_CONNECTION_ID,
             kind: "postgres",
+            liveHistory: false,
+            readOnly: false,
+            queryInsights: false,
+            serverLogs: false,
             name: "Sample data",
             source: "demo",
           },
@@ -92,7 +166,12 @@ export function createConnectionsService(options: {
 
       if (!detected) throw new Error("Run detection again and retry.");
 
-      return { kind: detected.kind, name: detected.name, url: detected.url };
+      return {
+        kind: detected.kind,
+        name: detected.name,
+        readOnly: record.readOnly === true,
+        url: detected.url,
+      };
     }
 
     const input = parseConnectionInput(payload);
@@ -101,8 +180,88 @@ export function createConnectionsService(options: {
     return {
       kind: input.kind,
       name: input.name ?? defaultConnectionName(input.kind, url),
+      readOnly: record.readOnly === true,
       url,
     };
+  }
+
+  /** Public view with what is actually running, not just what was requested. */
+  function publicOf(connection: StoredConnection): PublicConnection {
+    return {
+      ...toPublicConnection(connection),
+      liveHistory: isRunning("liveHistory", connection.id),
+      serverLogs: isRunning("serverLogs", connection.id),
+    };
+  }
+
+  async function startFeature(
+    feature: StreamFeature,
+    connection: StoredConnection,
+  ): Promise<FeatureSession> {
+    const key = featureKey(feature, connection.id);
+    const running = featureSessions.get(key);
+    if (running) return running;
+
+    let starting = startingFeatures.get(key);
+
+    if (!starting) {
+      starting = (async () => {
+        const streamsServerUrl = await hub.acquire(connection.id, feature);
+
+        try {
+          const session =
+            feature === "liveHistory"
+              ? await liveHistory.start({
+                  connectionId: connection.id,
+                  streamsServerUrl,
+                  url: connection.url,
+                })
+              : await serverLogs.start({
+                  connection,
+                  executor: pool.get(connection).executor,
+                  streamsServerUrl,
+                });
+          featureSessions.set(key, session);
+          return session;
+        } catch (error: unknown) {
+          await hub.release(connection.id, feature);
+          throw error;
+        }
+      })().finally(() => startingFeatures.delete(key));
+      startingFeatures.set(key, starting);
+    }
+
+    return await starting;
+  }
+
+  async function stopFeature(feature: StreamFeature, id: string) {
+    const key = featureKey(feature, id);
+    const session = featureSessions.get(key);
+    featureSessions.delete(key);
+    await session?.stop();
+    await hub.release(id, feature);
+  }
+
+  /** Restarts live history and server logs for connections that had them on. */
+  async function resumeStreamFeatures() {
+    for (const connection of await options.store.list()) {
+      if (connection.kind !== "postgres") continue;
+
+      for (const feature of STREAM_FEATURES) {
+        if (!connection[feature]) continue;
+
+        try {
+          await startFeature(feature, connection);
+          console.info(
+            `[connections] ${FEATURE_LABELS[feature]} resumed for ${connection.name}`,
+          );
+        } catch (error: unknown) {
+          console.warn(
+            `[connections] could not resume ${FEATURE_LABELS[feature]} for ${connection.name}: ${redactSecrets(errorMessage(error), connection.url)}`,
+          );
+        }
+      }
+    }
   }
 
   async function handleRequest(
@@ -167,10 +326,256 @@ export function createConnectionsService(options: {
         return json({ connection: toPublicConnection(saved) }, 201);
       }
 
+      const streamsMatch = /^\/([\w-]+)\/streams(?:\/.*)?$/.exec(subpath);
+
+      if (streamsMatch) {
+        const id = streamsMatch[1]!;
+        return await proxyStreamsRequest({
+          basePath: `${CONNECTIONS_PATH}/${id}/streams`,
+          request,
+          upstreamBaseUrl: hub.url(id),
+          url,
+        });
+      }
+
+      const backupsMatch =
+        /^\/([\w-]+)\/backups(?:\/([\w.-]+)(\/restore)?)?$/.exec(subpath);
+
+      if (backupsMatch) {
+        const [, connectionId, backupId, restore] = backupsMatch;
+        const stored = await options.store.get(connectionId!);
+
+        if (!stored) return json({ message: "Connection not found." }, 404);
+
+        const fail = (error: unknown) =>
+          json(
+            { message: redactSecrets(errorMessage(error), stored.url) },
+            500,
+          );
+
+        if (!backupId && request.method === "GET") {
+          return json({ backups: await backups.list(stored) });
+        }
+
+        if (!backupId && request.method === "POST") {
+          try {
+            return json({ backup: await backups.create(stored) }, 201);
+          } catch (error: unknown) {
+            return fail(error);
+          }
+        }
+
+        if (backupId && restore && request.method === "POST") {
+          try {
+            const restored = await backups.restore(stored, backupId);
+            const saved = await options.store.add({
+              kind: stored.kind,
+              name: restored.name,
+              url: restored.url,
+            });
+            return json({ connection: toPublicConnection(saved) }, 201);
+          } catch (error: unknown) {
+            return fail(error);
+          }
+        }
+
+        if (backupId && !restore && request.method === "DELETE") {
+          await backups.remove(stored, backupId);
+          return new Response(null, { status: 204 });
+        }
+      }
+
+      const insightsMatch = /^\/([\w-]+)\/query-insights$/.exec(subpath);
+
+      if (insightsMatch) {
+        const stored = await options.store.get(insightsMatch[1]!);
+
+        if (!stored) return json({ message: "Connection not found." }, 404);
+
+        if (stored.kind !== "postgres") {
+          return json(
+            { message: "Query insights are available for PostgreSQL only." },
+            400,
+          );
+        }
+
+        if (request.method === "POST") {
+          try {
+            await prepareQueryInsights(pool.get(stored).executor);
+          } catch (error: unknown) {
+            return json(
+              {
+                code: error instanceof SetupError ? error.code : "failed",
+                message: redactSecrets(errorMessage(error), stored.url),
+              },
+              error instanceof SetupError ? 409 : 500,
+            );
+          }
+        }
+
+        if (request.method === "POST" || request.method === "DELETE") {
+          // Turning it off only hides the view; the extension stays because
+          // other tools may rely on it.
+          const updated = await options.store.update(stored.id, {
+            queryInsights: request.method === "POST",
+          });
+          return json({ connection: publicOf(updated!) });
+        }
+      }
+
+      const identityMatch = /^\/([\w-]+)\/replica-identity$/.exec(subpath);
+
+      if (identityMatch) {
+        const stored = await options.store.get(identityMatch[1]!);
+
+        if (!stored) return json({ message: "Connection not found." }, 404);
+
+        if (stored.kind !== "postgres") {
+          return json(
+            { message: "Previous values are available for PostgreSQL only." },
+            400,
+          );
+        }
+
+        const fail = (error: unknown) =>
+          json(
+            {
+              code: error instanceof SetupError ? error.code : "failed",
+              message: redactSecrets(errorMessage(error), stored.url),
+            },
+            error instanceof SetupError ? 409 : 500,
+          );
+
+        if (request.method === "GET") {
+          try {
+            return json({
+              tables: await listReplicaIdentities(pool.get(stored).executor),
+            });
+          } catch (error: unknown) {
+            return fail(error);
+          }
+        }
+
+        if (request.method === "PUT") {
+          if (stored.readOnly) {
+            return json({ message: "This connection is read-only." }, 403);
+          }
+
+          const body = (await request.json()) as Record<string, unknown>;
+
+          if (
+            typeof body.schema !== "string" ||
+            typeof body.name !== "string" ||
+            typeof body.full !== "boolean"
+          ) {
+            return json({ message: "Expected { schema, name, full }." }, 400);
+          }
+
+          try {
+            return json({
+              table: await setReplicaIdentity(
+                pool.get(stored).executor,
+                { name: body.name, schema: body.schema },
+                body.full,
+              ),
+            });
+          } catch (error: unknown) {
+            return fail(error);
+          }
+        }
+      }
+
+      const featureMatch = /^\/([\w-]+)\/(live-history|server-logs)$/.exec(
+        subpath,
+      );
+
+      if (featureMatch) {
+        const feature: StreamFeature =
+          featureMatch[2] === "live-history" ? "liveHistory" : "serverLogs";
+        const stored = await options.store.get(featureMatch[1]!);
+
+        if (!stored) return json({ message: "Connection not found." }, 404);
+
+        if (stored.kind !== "postgres") {
+          return json(
+            {
+              message: `${FEATURE_LABELS[feature]} is available for PostgreSQL only.`,
+            },
+            400,
+          );
+        }
+
+        if (request.method === "POST") {
+          try {
+            const session = await startFeature(feature, stored);
+            const updated = await options.store.update(stored.id, {
+              [feature]: true,
+            });
+            return json({
+              connection: publicOf(updated!),
+              ...("tableCount" in session
+                ? { tableCount: session.tableCount }
+                : {}),
+            });
+          } catch (error: unknown) {
+            return json(
+              {
+                code: error instanceof SetupError ? error.code : "failed",
+                message: redactSecrets(errorMessage(error), stored.url),
+              },
+              error instanceof SetupError ? 409 : 500,
+            );
+          }
+        }
+
+        if (request.method === "DELETE") {
+          await stopFeature(feature, stored.id);
+
+          if (feature === "liveHistory") {
+            // Leave the user's database exactly as it was before.
+            await liveHistory.dropPublication(stored.url).catch(() => {});
+          }
+
+          const updated = await options.store.update(stored.id, {
+            [feature]: false,
+          });
+          return json({ connection: publicOf(updated!) });
+        }
+      }
+
       const idMatch = /^\/([\w-]+)$/.exec(subpath);
+
+      if (idMatch && request.method === "PATCH") {
+        const id = idMatch[1]!;
+        const body = (await request.json()) as Record<string, unknown>;
+        const patch: Partial<Omit<StoredConnection, "id">> = {};
+
+        if (typeof body.readOnly === "boolean") patch.readOnly = body.readOnly;
+        if (typeof body.name === "string" && body.name.trim()) {
+          patch.name = body.name.trim().slice(0, 80);
+        }
+
+        const updated = await options.store.update(id, patch);
+
+        if (!updated) return json({ message: "Connection not found." }, 404);
+
+        // Reopen with the new mode on the next query.
+        await pool.close(id);
+        return json({ connection: publicOf(updated) });
+      }
 
       if (idMatch && request.method === "DELETE") {
         const id = idMatch[1]!;
+        const stored = await options.store.get(id);
+
+        for (const feature of STREAM_FEATURES) {
+          if (isRunning(feature, id)) await stopFeature(feature, id);
+        }
+
+        if (stored?.liveHistory) {
+          await liveHistory.dropPublication(stored.url).catch(() => {});
+        }
+
         await pool.close(id);
         const removed = await options.store.remove(id);
         return removed
@@ -214,6 +619,50 @@ export function createConnectionsService(options: {
 
     try {
       switch (payload.procedure) {
+        case "query-insights": {
+          if (stored.kind !== "postgres" || !stored.queryInsights) {
+            return new Response("Invalid procedure", { status: 400 });
+          }
+
+          return Response.json([
+            null,
+            await insightsFor(stored.id).getSnapshot(executor, payload),
+          ]);
+        }
+        case "activity": {
+          if (stored.kind !== "postgres") {
+            return new Response("Invalid procedure", { status: 400 });
+          }
+
+          return Response.json([
+            null,
+            await getPostgresActivity(executor, {
+              canCancel: !stored.readOnly,
+            }),
+          ]);
+        }
+        case "activity-cancel": {
+          if (stored.kind !== "postgres") {
+            return new Response("Invalid procedure", { status: 400 });
+          }
+
+          if (stored.readOnly) {
+            return Response.json([
+              serializeError(
+                new Error(
+                  "Cancelling queries is disabled on read-only connections.",
+                ),
+              ),
+            ]);
+          }
+
+          return Response.json([
+            null,
+            {
+              cancelled: await cancelPostgresQuery(executor, payload.sessionId),
+            },
+          ]);
+        }
         case "query": {
           const [error, result] = await executor.execute(payload.query, {
             schema: payload.schema,
@@ -238,6 +687,17 @@ export function createConnectionsService(options: {
           );
         }
         case "transaction": {
+          if (stored.readOnly) {
+            // Studio edits (update/insert/delete) arrive as transactions.
+            return Response.json([
+              serializeError(
+                new Error(
+                  "This connection is read-only. Turn off read-only in Manage connections to edit data.",
+                ),
+              ),
+            ]);
+          }
+
           if (typeof executor.executeTransaction !== "function") {
             return new Response("Transaction execution is not supported", {
               status: 501,
@@ -272,5 +732,21 @@ export function createConnectionsService(options: {
     }
   }
 
-  return { closeAll: () => pool.closeAll(), handleQuery, handleRequest };
+  return {
+    async closeAll() {
+      // Stopping ends the temporary replication slots; publications and the
+      // "on" flag stay so history resumes on the next start.
+      await Promise.all(
+        [...featureSessions.keys()].map((key) => {
+          const [feature, id] = key.split(/:(.*)/s) as [StreamFeature, string];
+          return stopFeature(feature, id);
+        }),
+      );
+      await hub.closeAll();
+      await pool.closeAll();
+    },
+    handleQuery,
+    handleRequest,
+    resumeStreamFeatures,
+  };
 }

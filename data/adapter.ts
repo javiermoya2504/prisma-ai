@@ -1,3 +1,4 @@
+import type { StudioDatabaseActivity } from "./database-activity";
 import type { Executor } from "./executor";
 import type { Query } from "./query";
 import type { StudioQueryInsights } from "./query-insights";
@@ -7,6 +8,7 @@ export interface AdapterRequirements {
   executor: Executor;
   noParameters?: boolean;
   queryInsights?: StudioQueryInsights;
+  activity?: StudioDatabaseActivity;
 }
 
 export interface AdapterCapabilities {
@@ -51,6 +53,12 @@ export interface Adapter {
    * snapshots here, usually through the Studio BFF bridge.
    */
   readonly queryInsights?: StudioQueryInsights;
+
+  /**
+   * Optional live sessions provider (who is connected, what is running).
+   * Studio shows the Activity view only when this is present.
+   */
+  readonly activity?: StudioDatabaseActivity;
 
   /**
    * Introspects the database and returns structured information about the schemas, tables, etc.

@@ -21,6 +21,26 @@ import { useDemoAi } from "./use-demo-ai";
 
 const defaultConnectionsApi = createConnectionsApi();
 
+/**
+ * Adapter for the open connection. Its identity changes only when the
+ * connection or an adapter capability (query insights) changes; Studio is
+ * re-mounted with it (see `key` in DemoApp) so caches never mix.
+ */
+export function useConnectionAdapter(
+  active: PublicConnection | null,
+  createAdapter: (connection: PublicConnection) => Adapter,
+): Adapter {
+  const id = active?.id;
+  const kind = active?.kind;
+  const queryInsights = active?.queryInsights === true;
+
+  return useMemo(
+    () => (active ? createAdapter({ ...active }) : createNoDatabaseAdapter()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [id, kind, queryInsights],
+  );
+}
+
 export function DemoApp(props: {
   aiEnabled: boolean;
   aiConfigurable?: boolean;
@@ -49,18 +69,17 @@ export function DemoApp(props: {
     });
   const [isManagerOpen, setIsManagerOpen] = useState(false);
   const activeId = active?.id ?? null;
-  const activeKind = active?.kind;
-  // Adapter identity must only change when the connection does; Studio is
-  // re-mounted per connection (see `key` below) so caches never mix.
-  const adapter = useMemo(
-    () =>
-      activeId && activeKind
-        ? createAdapter({ ...active })
-        : createNoDatabaseAdapter(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeId, activeKind],
-  );
+  const adapter = useConnectionAdapter(active, createAdapter);
   const isDemoActive = activeId === DEMO_CONNECTION_ID;
+  // The bundled database keeps its own Streams (prisma-wal, observability);
+  // the user's Postgres databases get their own Streams server once live
+  // history or server logs are on; streams-only mode keeps the bundled one.
+  const activeStreamsUrl =
+    isDemoActive || activeId == null
+      ? streamsUrl
+      : active?.liveHistory || active?.serverLogs
+        ? `/api/connections/${encodeURIComponent(activeId)}/streams`
+        : undefined;
 
   useEffect(() => {
     if (isLoaded && canManage && connections.length === 0) {
@@ -92,7 +111,8 @@ export function DemoApp(props: {
       ) : null}
       {isLoaded ? (
         <Studio
-          key={activeId ?? "no-database"}
+          // Re-mount when live history toggles so Streams discovery restarts.
+          key={`${activeId ?? "no-database"}:${active?.liveHistory ? "history" : ""}:${active?.readOnly ? "ro" : "rw"}:${active?.queryInsights ? "qi" : ""}:${active?.serverLogs ? "logs" : ""}`}
           adapter={adapter}
           aiSettings={aiSettings}
           databaseSwitcher={
@@ -106,11 +126,9 @@ export function DemoApp(props: {
             ) : undefined
           }
           hasDatabase={activeId != null}
+          readOnly={active?.readOnly === true}
           llm={llm}
-          // Bundled-database streams (prisma-wal, observability) are hidden
-          // while one of the user's own databases is open. Streams-only mode
-          // (no database) keeps them.
-          streamsUrl={isDemoActive || activeId == null ? streamsUrl : undefined}
+          streamsUrl={activeStreamsUrl}
         />
       ) : null}
     </main>

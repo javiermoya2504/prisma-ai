@@ -284,3 +284,20 @@ Changes to query insights MUST include tests covering:
 - serial automatic AI analysis with the five-query cap and manual analysis beyond that cap
 - AI prompt terminology that calls `rowsReturned` "rows returned" instead of "reads"
 - demo aggregation behavior for successful query executions
+
+## Demo Provider For Saved PostgreSQL Connections
+
+Saved PostgreSQL connections in the local app can feed the Queries view from `pg_stat_statements` ([`demo/ppg-dev/connections/pg-stat-statements.ts`](../demo/ppg-dev/connections/pg-stat-statements.ts)). It is turned on per connection ("Query insights").
+
+- Setup:
+  - The library must be in `shared_preload_libraries`. When it is missing, the server returns `409 { code: "preload" }` and the UI explains the one-time `ALTER SYSTEM` and restart.
+  - If the extension is missing, it is created in a dedicated `studio_monitoring` schema, so its views never appear among the user's tables. An existing installation is used wherever it lives. Turning the feature off keeps the extension.
+- Row mapping:
+  - `id` comes from `queryid`, `count` from `calls`, and `duration`, `minDurationMs` and `maxDurationMs` from the mean, min and max execution time.
+  - `rowsReturned` comes from `rows`, and `reads` from shared blocks hit plus read.
+  - `tables` comes from the same SQL table extraction the demo store uses.
+- `lastSeen`: pg_stat_statements has no "last executed" column, so `lastSeen` is when Studio first saw the statement or saw its `calls` grow. `since` filtering uses that.
+- These rows are excluded:
+  - Studio's own monitoring SQL (`/* prisma-studio */` marker)
+  - catalog-only statements
+  - utility statements (`SET`, `SHOW`, transaction control, `current_setting` probes)
