@@ -6,10 +6,10 @@ import { DEMO_CONNECTION_ID } from "./settings";
 export const ACTIVE_CONNECTION_STORAGE_KEY = "studio-demo:active-connection";
 
 const DEMO_CONNECTION: PublicConnection = {
-  displayUrl: "Local Prisma Postgres (seeded, resets on restart)",
+  displayUrl: "Built-in sample PostgreSQL (resets on restart)",
   id: DEMO_CONNECTION_ID,
   kind: "postgres",
-  name: "Demo database",
+  name: "Sample data",
   source: "demo",
 };
 

@@ -70,6 +70,12 @@ export interface StudioProps {
   llm?: StudioLlm;
   /** Host-owned provider settings rendered inside the AI panel. */
   aiSettings?: ReactNode;
+  /**
+   * Host-owned database picker rendered at the top of the navigation sidebar,
+   * above the schema selector. Lets hosts that manage several connections
+   * switch databases from inside Studio.
+   */
+  databaseSwitcher?: ReactNode;
   onEvent?: (error: StudioEvent) => void;
   streamsUrl?: string;
   /**
@@ -86,6 +92,7 @@ export function Studio(props: StudioProps) {
   const {
     adapter,
     aiSettings,
+    databaseSwitcher,
     hasDatabase = true,
     llm,
     onEvent,
@@ -102,6 +109,7 @@ export function Studio(props: StudioProps) {
     <StudioContextProvider
       adapter={adapter}
       aiSettings={aiSettings}
+      databaseSwitcher={databaseSwitcher}
       hasDatabase={hasDatabase}
       llm={llm}
       onEvent={onEvent}

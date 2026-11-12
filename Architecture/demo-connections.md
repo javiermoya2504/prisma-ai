@@ -36,4 +36,8 @@ Studio core is unchanged by this subsystem: it still receives exactly one `adapt
 
 ## UI
 
-The switcher (`DropdownMenu`) sits in the demo header; management uses a standard ShadCN `Dialog` with `Field`, `Input`, `ToggleGroup`, `Badge`, `Button`, and `Alert`. No non-standard UI composite is introduced.
+The demo has no chrome of its own: `<Studio>` fills the viewport and the page title is "Prisma Studio", so the host reads as a single Studio app.
+
+The database picker is rendered inside Studio through the public `databaseSwitcher?: ReactNode` prop. Studio places that slot at the top of the navigation sidebar, directly above the schema selector (and also when no database is open, so a first connection can be added). The demo fills it with a standard ShadCN `Select` labelled "Database" (same trigger as the "Schema" selector) whose last option opens "Manage connections…". Management uses a standard ShadCN `Dialog` with `Field`, `Input`, `ToggleGroup`, `Badge`, `Button`, and `Alert`; it inherits Studio's `.ps` scope, fonts, and dark mode. No non-standard UI composite is introduced.
+
+The bundled seeded database is listed as "Sample data".

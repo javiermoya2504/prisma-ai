@@ -73,10 +73,10 @@ export function createConnectionsService(options: {
     return options.demo.available
       ? [
           {
-            displayUrl: "Local Prisma Postgres (seeded, resets on restart)",
+            displayUrl: "Built-in sample PostgreSQL (resets on restart)",
             id: DEMO_CONNECTION_ID,
             kind: "postgres",
-            name: "Demo database",
+            name: "Sample data",
             source: "demo",
           },
           ...saved,

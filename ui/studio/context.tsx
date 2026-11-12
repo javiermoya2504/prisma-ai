@@ -257,6 +257,7 @@ interface StudioContextValue {
   hasDatabase: boolean;
   llm?: StudioLlm;
   aiSettings?: ReactNode;
+  databaseSwitcher?: ReactNode;
   queryInsights?: Adapter["queryInsights"];
   streamsUrl?: string;
   hasAiFilter: boolean;
@@ -304,6 +305,7 @@ export type StudioContextProviderProps = PropsWithChildren<{
   hasDatabase?: boolean;
   llm?: StudioLlm;
   aiSettings?: ReactNode;
+  databaseSwitcher?: ReactNode;
   onEvent?: (event: StudioEvent) => void;
   streamsUrl?: string;
   theme?: CustomTheme | string;
@@ -313,6 +315,7 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
   const {
     children,
     aiSettings,
+    databaseSwitcher,
     onEvent: emitEvent,
     adapter,
     hasDatabase = true,
@@ -859,6 +862,7 @@ export function StudioContextProvider(props: StudioContextProviderProps) {
         value={{
           adapter,
           aiSettings,
+          databaseSwitcher,
           hasDatabase,
           llm,
           queryInsights,

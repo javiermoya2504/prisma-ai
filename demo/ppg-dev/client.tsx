@@ -34,10 +34,8 @@ async function bootstrap(): Promise<void> {
 
   root.render(
     <DemoApp
-      bootId={config.bootId}
       demoDatabase={config.database.enabled}
       queryInsights={config.queries.enabled === true}
-      seededAt={config.seededAt}
       aiEnabled={config.ai?.enabled === true}
       aiConfigurable={config.ai?.configurable === true}
       streamsUrl={config.streams?.url}

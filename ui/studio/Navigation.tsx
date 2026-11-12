@@ -43,6 +43,7 @@ export function Navigation({ className }: NavigationProps) {
   const { metadata, createUrl, streamParam, viewParam, schemaParam } =
     useNavigation();
   const {
+    databaseSwitcher,
     hasDatabase,
     hasQueryInsights,
     isDarkMode,
@@ -510,9 +511,15 @@ export function Navigation({ className }: NavigationProps) {
         <span className="text-lg font-medium font-sans">Prisma Studio</span>
       </div>
 
+      {databaseSwitcher ? (
+        <div className="px-4 pt-4" data-testid="studio-database-switcher">
+          {databaseSwitcher}
+        </div>
+      ) : null}
+
       {hasDatabase ? (
         <>
-          <Navigation.SchemaSelector />
+          <Navigation.SchemaSelector compact={databaseSwitcher != null} />
 
           <Navigation.Block label="Studio">
             <Navigation.Item
@@ -1004,7 +1011,7 @@ const Item = ({
   );
 };
 
-const SchemaSelector = () => {
+const SchemaSelector = (props: { compact?: boolean }) => {
   const {
     data: introspection,
     hasResolvedIntrospection,
@@ -1017,7 +1024,13 @@ const SchemaSelector = () => {
   const isInitialIntrospectionLoad = isFetching && !hasResolvedIntrospection;
 
   return (
-    <div className="flex items-center gap-1 pt-4 pb-2 px-4 sticky top-0 backdrop-blur-sm">
+    <div
+      className={cn(
+        "flex items-center gap-1 pb-2 px-4 sticky top-0 backdrop-blur-sm",
+        // Sits directly under the database switcher when the host renders one.
+        props.compact ? "pt-2" : "pt-4",
+      )}
+    >
       <Select
         value={schemaParam}
         onValueChange={(schemaParam) => {

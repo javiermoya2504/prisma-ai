@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +55,7 @@ interface StreamsMockValue {
 }
 
 interface StudioMockValue {
+  databaseSwitcher?: ReactNode;
   hasDatabase: boolean;
   isDarkMode: boolean;
   hasQueryInsights: boolean;
@@ -365,6 +367,45 @@ describe("Navigation", () => {
     uiStateValues.clear();
     document.body.innerHTML = "";
     window.location.hash = "";
+  });
+
+  it("renders the host database switcher above the schema selector, even without a database", () => {
+    for (const hasDatabase of [true, false]) {
+      useStudioMock.mockImplementation(() => ({
+        databaseSwitcher: <button type="button">Pick database</button>,
+        hasDatabase,
+        hasQueryInsights: false,
+        isDarkMode,
+        navigationWidth: 192,
+        setNavigationWidth: setNavigationWidthMock,
+      }));
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+
+      act(() => {
+        root.render(<Navigation />);
+      });
+
+      const slot = container.querySelector(
+        '[data-testid="studio-database-switcher"]',
+      );
+      expect(slot?.textContent).toBe("Pick database");
+
+      if (hasDatabase) {
+        const schemaTrigger = container.querySelector("button[role=combobox]");
+        expect(schemaTrigger?.textContent).toContain("Schema");
+        expect(
+          slot!.compareDocumentPosition(schemaTrigger!) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
   });
 
   it("uses the dark-mode Prisma logo asset when Studio is dark", () => {

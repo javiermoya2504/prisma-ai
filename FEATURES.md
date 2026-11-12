@@ -25,9 +25,9 @@ The local `ppg-dev` demo can be packaged into a Compute-ready artifact instead o
 The deploy builder precompiles the browser JS/CSS, injects those assets into the bundled server, copies Prisma Dev's PGlite runtime assets into the bundle with stable filenames, and bundles the Prisma Streams worker into `touch/` so the Compute artifact can boot and keep WAL-to-stream syncing alive outside the repo checkout.
 The same demo entrypoint can also run against external development infrastructure through `pnpm demo:ppg -- --database-url <postgres-url> --streams-server-url <streams-url>`, or in streams-only mode through `pnpm demo:ppg -- --streams-server-url <streams-url>`. In those modes, Studio keeps serving the local shell and `/api/streams` proxy, but skips local Prisma Dev startup, local Streams startup, WAL wiring, and local seeding so you can point the demo at an already-running backend stack.
 
-## Open Your Own Databases In The Demo
+## Open Your Own Databases
 
-The local demo is not limited to its seeded database: a switcher in the demo header opens any PostgreSQL, MySQL, or SQLite database on your machine or your own servers, so Studio (including the AI assistant) works on real data without Prisma Console.
+The local app is not limited to its sample database: a "Database" selector at the top of Studio's sidebar, styled like the schema selector, opens any PostgreSQL, MySQL, or SQLite database on your machine or your own servers, so Studio (including the AI assistant) works on real data without Prisma Console.
 Local databases are found automatically (Postgres/MySQL on their default local ports, SQLite files in your project folders, and `DATABASE_URL`) and connect with one click; others are added with host, user, and password, a connection URL, or a SQLite file path, and are tested before they are saved.
 Saved credentials stay on the demo server in an owner-only file (`~/.prisma-studio-ai/connections.json`, override with `STUDIO_CONNECTIONS_FILE`) and are never sent to the browser; connection management only answers requests from the same machine.
 

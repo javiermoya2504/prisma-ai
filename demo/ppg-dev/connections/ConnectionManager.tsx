@@ -1,13 +1,4 @@
-import {
-  Check,
-  ChevronsUpDown,
-  Database,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Settings2,
-  Trash2,
-} from "lucide-react";
+import { Database, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "../../../ui/components/ui/alert";
@@ -21,20 +12,20 @@ import {
   DialogTitle,
 } from "../../../ui/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../../../ui/components/ui/dropdown-menu";
-import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "../../../ui/components/ui/field";
 import { Input } from "../../../ui/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "../../../ui/components/ui/select";
 import { Separator } from "../../../ui/components/ui/separator";
 import {
   ToggleGroup,
@@ -54,63 +45,60 @@ import {
   isDatabaseKind,
 } from "./settings";
 
+const MANAGE_CONNECTIONS_VALUE = "__manage-connections__";
+
+/**
+ * Database picker rendered in Studio's sidebar through the `databaseSwitcher`
+ * slot. It is the same ShadCN `Select` as Studio's schema selector, so the two
+ * read as one control group.
+ */
 export function ConnectionSwitcher(props: {
   connections: PublicConnection[];
   activeId: string | null;
   onSelect: (connection: PublicConnection) => void;
   onManage: () => void;
 }) {
-  const active = props.connections.find((item) => item.id === props.activeId);
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label="Switch database"
-          className="h-8 max-w-[320px] justify-between gap-2 font-sans font-normal"
-        >
-          <Database className="text-muted-foreground" />
-          <span className="truncate">
-            {active ? active.name : "Choose a database"}
-          </span>
-          {active ? (
-            <Badge variant="secondary" className="font-normal">
-              {DATABASE_KIND_LABELS[active.kind]}
-            </Badge>
-          ) : null}
-          <ChevronsUpDown className="text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-80 font-sans">
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-          Databases
-        </DropdownMenuLabel>
+    <Select
+      value={props.activeId ?? undefined}
+      onValueChange={(value) => {
+        if (value === MANAGE_CONNECTIONS_VALUE) {
+          props.onManage();
+          return;
+        }
+
+        const connection = props.connections.find((item) => item.id === value);
+        if (connection) props.onSelect(connection);
+      }}
+    >
+      <SelectTrigger
+        // Long names truncate inside the trigger instead of pushing the
+        // chevron out, matching the schema selector's footprint.
+        className="text-xs [&>div]:min-w-0 [&>div>span:last-child]:truncate"
+        label="Database"
+        aria-label="Switch database"
+      >
+        <SelectValue placeholder="Add a database" />
+      </SelectTrigger>
+      <SelectContent>
         {props.connections.map((connection) => (
-          <DropdownMenuItem
+          <SelectItem
             key={connection.id}
-            onSelect={() => props.onSelect(connection)}
-            className="gap-2"
+            value={connection.id}
+            className="text-xs"
           >
-            <Check
-              className={
-                connection.id === props.activeId ? "opacity-100" : "opacity-0"
-              }
-            />
-            <span className="min-w-0 flex-1 truncate">{connection.name}</span>
-            <span className="text-xs text-muted-foreground">
-              {DATABASE_KIND_LABELS[connection.kind]}
-            </span>
-          </DropdownMenuItem>
+            {connection.name}
+          </SelectItem>
         ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={props.onManage} className="gap-2">
-          <Settings2 />
+        {props.connections.length > 0 ? <SelectSeparator /> : null}
+        <SelectItem
+          value={MANAGE_CONNECTIONS_VALUE}
+          className="text-xs text-muted-foreground"
+        >
           Manage connections…
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 

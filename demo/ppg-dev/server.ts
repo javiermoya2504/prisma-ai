@@ -785,7 +785,7 @@ function getHtmlDocument(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Studio + ppg demo${isProduction ? "" : " (direct tcp)"}</title>
+    <title>Prisma Studio</title>
     <link rel="stylesheet" href="/app.css${bustSuffix}" />
   </head>
   <body style="margin: 0; min-height: 100vh;">
