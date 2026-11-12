@@ -60,6 +60,11 @@ Restoring never overwrites anything. It creates a new database next to the origi
 Any saved PostgreSQL connection can turn on "Live history" to see every insert, update, and delete as it happens, from any app or script, in a `prisma-wal` stream. That includes Studio's per-table and per-row history buttons, the same as with the sample database.
 It needs `wal_level = logical` (Studio explains the one-time setup when it is missing), only publishes tables with a primary key so writes elsewhere keep working, and uses a temporary replication slot that disappears when Studio stops, so the database never accumulates WAL because of it. Turning it off removes everything it created.
 
+## Compare Schemas Between Connections
+
+"Compare schema…" in a connection's menu shows what differs between two databases, or two schemas of one, for example development and production: tables and columns added, removed, or changed (type, nullability, default, primary key), relations, and enums.
+It reuses the Migrations view's diff canvas and Prisma schema panel, works with PostgreSQL, MySQL, and SQLite (even across kinds), matches tables by name even when the schemas are named differently, and only reads the databases.
+
 ## Tables That Stay In Sync With The Database
 
 When the database's change history (`prisma-wal`) is available, the open table shows a "Live" badge and reloads by itself whenever its rows change, whether the change came from Studio, another app, or a script. Only changes to that table trigger a reload.

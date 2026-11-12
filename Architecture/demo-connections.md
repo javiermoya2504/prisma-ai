@@ -106,6 +106,14 @@ Canonical component: [`demo/ppg-dev/connections/live-history.ts`](../demo/ppg-de
 - "Previous values for updates…" ([`replica-identity.ts`](../demo/ppg-dev/connections/replica-identity.ts)) lists tables with a primary key or already FULL (`GET /api/connections/<id>/replica-identity`) and switches one table between `REPLICA IDENTITY FULL` and `DEFAULT` (`PUT { schema, name, full }`). Only listed tables can be changed, read-only connections get `403`, and nothing is applied without the user turning the table's switch on. FULL tables then carry the whole previous row in `old_value`, which Studio renders as a before/after table.
 - Both `/api/streams` and the per-connection proxies share [`demo/ppg-dev/streams-proxy.ts`](../demo/ppg-dev/streams-proxy.ts).
 
+## Schema Comparison
+
+Canonical components: [`demo/ppg-dev/connections/schema-compare.ts`](../demo/ppg-dev/connections/schema-compare.ts) and [`demo/ppg-dev/connections/CompareSchemaDialog.tsx`](../demo/ppg-dev/connections/CompareSchemaDialog.tsx).
+
+- "Compare schema…" (connection actions menu) introspects both sides in the browser through the same adapter and BFF route Studio uses (`createConnectionAdapter(...).introspect`), so every database kind works and no new server route exists.
+- `introspectionToContract` converts one introspected schema into the contract document `parseContractSnapshot` reads (domain models with field→column bindings, storage tables with native types, nullability, defaults, primary keys; FKs inside the schema as `N:1` relations; enum columns as enums). Models are named by table without schema so differently named schemas (MySQL databases, `public` vs `app`) still match. Introspection has no index data, so index changes are not shown.
+- The diff renders with the exported `SchemaDiff` component (Migrations view canvas + schema panel) inside a standard ShadCN `Dialog`; no SQL operations are passed, so no migration SQL is shown. The default target is another saved connection of the same kind.
+
 ## UI
 
 The demo has no chrome of its own: `<Studio>` fills the viewport and the page title is "Prisma Studio", so the host reads as a single Studio app.

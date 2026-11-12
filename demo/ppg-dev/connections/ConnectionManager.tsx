@@ -1,6 +1,7 @@
 import {
   Archive,
   Database,
+  GitCompare,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -59,6 +60,7 @@ import type {
   PublicConnection,
   TableReplicaIdentity,
 } from "./client-api";
+import { CompareSchemaDialog } from "./CompareSchemaDialog";
 import {
   DATABASE_KIND_LABELS,
   DATABASE_KINDS,
@@ -250,6 +252,9 @@ export function ConnectionsDialog(props: {
   };
 
   const busy = status.kind === "busy";
+  const [compareConnectionId, setCompareConnectionId] = useState<string | null>(
+    null,
+  );
   const [backupsConnection, setBackupsConnection] =
     useState<PublicConnection | null>(null);
   const reportError = (error: unknown) =>
@@ -342,6 +347,9 @@ export function ConnectionsDialog(props: {
                               .catch(reportError);
                           }}
                           onOpenBackups={() => setBackupsConnection(connection)}
+                          onCompare={() =>
+                            setCompareConnectionId(connection.id)
+                          }
                           onRemove={() => {
                             void api
                               .remove(connection.id)
@@ -684,6 +692,13 @@ export function ConnectionsDialog(props: {
           </div>
         </DialogContent>
       </Dialog>
+      {compareConnectionId ? (
+        <CompareSchemaDialog
+          connections={props.connections}
+          initialConnectionId={compareConnectionId}
+          onClose={() => setCompareConnectionId(null)}
+        />
+      ) : null}
       {backupsConnection ? (
         <BackupsDialog
           api={api}
@@ -706,6 +721,7 @@ function ConnectionActionsMenu(props: {
   disabled: boolean;
   onReadOnlyChange: (readOnly: boolean) => void;
   onOpenBackups: () => void;
+  onCompare: () => void;
   onRemove: () => void;
 }) {
   return (
@@ -734,6 +750,10 @@ function ConnectionActionsMenu(props: {
         >
           <Archive className="size-3.5" />
           Backups…
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={props.onCompare} className="gap-2 text-xs">
+          <GitCompare className="size-3.5" />
+          Compare schema…
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
